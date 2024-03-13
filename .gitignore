@@ -222,7 +222,7 @@ nbdist/
 
 ### VisualStudioCode ###
 # Note: Manually edited to remove settings files
-.vscode/*
+# .vscode/*
 # !.vscode/settings.json
 # !.vscode/tasks.json
 # !.vscode/launch.json

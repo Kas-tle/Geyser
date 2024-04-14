@@ -108,12 +108,13 @@ jobs:
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
         with:
           script: |
-            github.rest.repos.createWorkflowDispatch({
+            github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'preview.yml',
               ref: 'actions-testing',
               inputs: {
-                runId: '${{ github.run_id }}'
+                runId: '${{ github.run_id }}',
+                version: 'pr-${{ github.event.pull_request.number }}'
               }
             });

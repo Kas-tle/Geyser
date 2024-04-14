@@ -6,6 +6,9 @@ on:
       runId:
         required: true
         description: 'ID of the action to pull artifacts from'
+      version:
+        required: true
+        description: 'Version under which to upload to the Downloads API'
 
 jobs:
   upload:

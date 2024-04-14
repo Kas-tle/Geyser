@@ -103,7 +103,8 @@ jobs:
           path: geyser/bootstrap/viaproxy/build/libs/Geyser-ViaProxy.jar
           if-no-files-found: error
       - name: Trigger Preview Deployment
-        if: contains(github.event.pull_request.labels.*.name, 'PR: Needs Testing')
+        if: >-
+          contains(github.event.pull_request.labels.*.name, 'PR: Needs Testing')
         uses: actions/github-script@v3.1.0
         with:
           script: |

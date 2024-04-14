@@ -105,7 +105,7 @@ jobs:
       - name: Trigger Preview Deployment
         if: >-
           contains(github.event.pull_request.labels.*.name, 'PR: Needs Testing')
-        uses: actions/github-script@v3.1.0
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
         with:
           script: |
             github.actions.createWorkflowDispatch({

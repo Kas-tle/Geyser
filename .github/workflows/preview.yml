@@ -5,19 +5,17 @@ on:
     inputs:
       runId:
         required: true
-        description: 'ID of the Build Pull Request Run'
+        description: 'ID of the action to pull artifacts from'
 
 jobs:
   upload:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
         with:
           run-id: ${{ github.event.inputs.runId }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: 'Unzip artifacts'
+          merge-multiple: true
+      - name: 'List Artifacts'
         run: |
-          mkdir -p ${{github.workspace}}/artifacts
-          for zip in ${{github.workspace}}/*.zip; do
-            unzip -d ${{github.workspace}}/artifacts "$zip"
-          done
+          ls -a

@@ -112,7 +112,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'preview.yml',
-              ref: 'master',
+              ref: 'actions-testing',
               inputs: {
                 runId: '${{ github.run_id }}'
               }

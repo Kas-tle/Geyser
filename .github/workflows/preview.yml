@@ -11,29 +11,10 @@ jobs:
   upload:
     runs-on: ubuntu-latest
     steps:
-      - name: 'Download all artifacts'
-        uses: actions/github-script@v3.1.0
+      - uses: actions/download-artifact@v4
         with:
-          script: |
-            const run_id = ${{ github.event.inputs.runId }};
-            const artifacts = await github.actions.listWorkflowRunArtifacts({
-               owner: context.repo.owner,
-               repo: context.repo.repo,
-               run_id: run_id,
-            });
-
-            // Loop through all artifacts and download them
-            for (const artifact of artifacts.data.artifacts) {
-              const download = await github.actions.downloadArtifact({
-                 owner: context.repo.owner,
-                 repo: context.repo.repo,
-                 artifact_id: artifact.id,
-                 archive_format: 'zip',
-              });
-              const fs = require('fs');
-              // Write each artifact to a separate file named after the artifact
-              fs.writeFileSync(`${{github.workspace}}/${artifact.name}.zip`, Buffer.from(download.data));
-            }
+          run-id: ${{ github.event.inputs.runId }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: 'Unzip artifacts'
         run: |
           mkdir -p ${{github.workspace}}/artifacts

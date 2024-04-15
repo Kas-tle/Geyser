@@ -115,6 +115,6 @@ jobs:
               ref: 'actions-testing',
               inputs: {
                 runId: '${{ github.run_id }}',
-                version: 'pr-${{ github.event.pull_request.number }}'
+                version: 'pr.${{ github.event.pull_request.number }}'
               }
             });

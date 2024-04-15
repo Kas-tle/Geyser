@@ -42,7 +42,7 @@ jobs:
       - run: |
           cat metadata.json
           echo
-          jq -c --arg project "geyser-preview" --arg version "pr.${{ github.event.inputs.version }}" --arg number "${{ github.event.inputs.runId }}" '
+          jq --arg project "geyser-preview" --arg version "pr.${{ github.event.inputs.version }}" --arg number "${{ github.event.inputs.runId }}" '
             .
             | .downloads |= map_values({"name", "sha256"})
             | {$project, "repo", $version, "number": $number | tonumber, "changes": [], "downloads"}
@@ -55,7 +55,7 @@ jobs:
           DOWNLOADS_PRIVATE_KEY: ${{ secrets.DOWNLOADS_PRIVATE_KEY }}
           DOWNLOADS_SERVER_IP: ${{ secrets.DOWNLOADS_SERVER_IP }}
           RUN_ID: ${{ github.event.inputs.runId }}
-          VERSION: pr.${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.version }}
         run: |
           # Save the private key to a file
           echo "$DOWNLOADS_PRIVATE_KEY" > id_ecdsa

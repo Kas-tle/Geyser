@@ -43,10 +43,12 @@ import java.util.UUID;
 public class ThrowableEntity extends Entity implements Tickable {
 
     protected Vector3f lastJavaPosition;
+    protected Vector3f lastAbsoluteJavaPosition;
 
     public ThrowableEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
         super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
         this.lastJavaPosition = position;
+        this.lastAbsoluteJavaPosition = position;
     }
 
     /**
@@ -55,8 +57,11 @@ public class ThrowableEntity extends Entity implements Tickable {
      */
     @Override
     public void tick() {
-        if (session.getPlayerEntity().getPosition().distanceSquared(this.position) > 512F) {
-            // Assume the entity should be despawned if it's this far away...
+        if (
+            session.getPlayerEntity().getPosition().distanceSquared(this.position) > 512F &&
+            this.lastAbsoluteJavaPosition.distanceSquared(this.position)  > 512F
+        ) {
+            // Assume the entity should be despawned if it's this far away and we haven't had an abs pos update...
             this.despawnEntity();
             return;
         }
@@ -196,5 +201,6 @@ public class ThrowableEntity extends Entity implements Tickable {
     public void moveAbsolute(Vector3f position, float yaw, float pitch, float headYaw, boolean isOnGround, boolean teleported) {
         moveAbsoluteImmediate(position, yaw, pitch, headYaw, isOnGround, teleported);
         lastJavaPosition = position;
+        this.lastAbsoluteJavaPosition = position;
     }
 }

@@ -24,7 +24,7 @@ jobs:
           ls -a
       - name: Get Preview Metadata
         #if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
-        uses: Kas-tle/base-release-action@d65e0bf6a5883cedd7ca8eef1a0323c9d7518cbe
+        uses: Kas-tle/base-release-action@664c39985eb9d0d393ce98e7eb8414d3d98e762a
         with:
           appID: ${{ secrets.RELEASE_APP_ID }}
           appPrivateKey: ${{ secrets.RELEASE_APP_PK }}

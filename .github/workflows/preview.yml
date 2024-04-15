@@ -42,7 +42,7 @@ jobs:
       - run: |
           cat metadata.json
           echo
-          jq -n -c --arg project "${project}" --arg version "${VERSION}" --arg number "${RUN_ID}" '
+          jq -c --arg project "${project}" --arg version "${VERSION}" --arg number "${RUN_ID}" '
             .
             | .downloads |= map_values({"name", "sha256"})
             | {$project, "repo", $version, "number": $number | tonumber, "changes": [], "downloads"}
@@ -68,7 +68,7 @@ jobs:
           rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" Geyser-*.jar $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$project/$RUN_ID/
           # Run the build script
           # Push the metadata
-          jq -n -c --arg project "${project}" --arg version "${VERSION}" --arg number "${RUN_ID}" '
+          jq -c --arg project "${project}" --arg version "${VERSION}" --arg number "${RUN_ID}" '
             .
             | .downloads |= map_values({"name", "sha256"})
             | {$project, "repo", $version, "number": $number | tonumber, "changes": [], "downloads"}

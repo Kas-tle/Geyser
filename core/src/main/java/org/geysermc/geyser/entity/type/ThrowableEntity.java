@@ -55,6 +55,12 @@ public class ThrowableEntity extends Entity implements Tickable {
      */
     @Override
     public void tick() {
+        if (session.getPlayerEntity().getPosition().distanceSquared(this.position) > 512F) {
+            // Assume the entity should be despawned if it's this far away...
+            this.despawnEntity();
+            return;
+        }
+        
         moveAbsoluteImmediate(position.add(motion), getYaw(), getPitch(), getHeadYaw(), isOnGround(), false);
         float drag = getDrag();
         float gravity = getGravity();

@@ -72,6 +72,12 @@ public class FireballEntity extends ThrowableEntity {
 
     @Override
     public void tick() {
+        if (session.getPlayerEntity().getPosition().distanceSquared(this.position) > 512F) {
+            // Assume the entity should be despawned if it's this far away...
+            this.despawnEntity();
+            return;
+        }
+
         moveAbsoluteImmediate(tickMovement(position), getYaw(), getPitch(), getHeadYaw(), false, false);
     }
 }

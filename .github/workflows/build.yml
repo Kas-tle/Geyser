@@ -102,7 +102,32 @@ jobs:
           ORG_GRADLE_PROJECT_geysermcPassword: ${{ secrets.DEPLOY_PASS }}
         with:
           arguments: publish
-
+      - name: Get Release Metadata
+        #if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
+        uses: Kas-tle/base-release-action@5c25bfadb7a35f7c8041e6aaa2e7af5f217ac2f1
+        with:
+          appID: ${{ secrets.RELEASE_APP_ID }}
+          appPrivateKey: ${{ secrets.RELEASE_APP_PK }}
+          files: |
+            bungeecord:bootstrap/bungeecord/build/libs/Geyser-BungeeCord.jar
+            fabric:bootstrap/mod/fabric/build/libs/Geyser-Fabric.jar
+            neoforge:bootstrap/mod/neoforge/build/libs/Geyser-NeoForge.jar
+            spigot:bootstrap/spigot/build/libs/Geyser-Spigot.jar
+            standalone:bootstrap/standalone/build/libs/Geyser-Standalone.jar
+            velocity:bootstrap/velocity/build/libs/Geyser-Velocity.jar
+            viaproxy:bootstrap/viaproxy/build/libs/Geyser-ViaProxy.jar
+          releaseEnabled: false
+          saveMetadata: true
+      - run: | # Just to show metadata works 
+          cat metadata.json
+          project=geyser
+          version=$(cat gradle.properties | grep -o "version=[0-9\\.]*" | cut -d"=" -f2)
+          jq -c --arg project "${project}" --arg version "${version}" '
+            .
+            | .changes |= map({"commit", "summary", "message"}) 
+            | .downloads |= map_values({"name", "sha256"})
+            | {$project, $version, "number": .build, "changes", "downloads"}
+          ' metadata.json
       - name: Publish to Downloads API
         if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
         shell: bash
@@ -125,7 +150,12 @@ jobs:
           rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" bootstrap/mod/**/build/libs/Geyser-*.jar $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$project/$GITHUB_RUN_NUMBER/
           # Run the build script
           # Push the metadata
-          echo "{\"project\": \"$project\", \"version\": \"$version\", \"id\": $GITHUB_RUN_NUMBER, \"commit\": \"$GITHUB_SHA\"}" > metadata.json
+          jq -c --arg project "${project}" --arg version "${version}" '
+            .
+            | .changes |= map({"commit", "summary", "message"}) 
+            | .downloads |= map_values({"name", "sha256"})
+            | {$project, $version, "number": .build, "changes", "downloads"}
+          ' metadata.json > metadata.json.tmp && mv metadata.json.tmp metadata.json
           rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" metadata.json $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$project/$GITHUB_RUN_NUMBER/
 
       - name: Publish to Modrinth (Fabric)

@@ -127,7 +127,7 @@ jobs:
             .
             | .changes |= map({"commit", "summary", "message"}) 
             | .downloads |= map_values({"name", "sha256"})
-            | {$project, $version, "number": .build, "changes", "downloads"}
+            | {$project, "repo", $version, "number": .build, "changes", "downloads"}
           ' metadata.json
       - name: Publish to Downloads API
         if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
@@ -155,7 +155,7 @@ jobs:
             .
             | .changes |= map({"commit", "summary", "message"}) 
             | .downloads |= map_values({"name", "sha256"})
-            | {$project, $version, "number": .build, "changes", "downloads"}
+            | {$project, "repo", $version, "number": .build, "changes", "downloads"}
           ' metadata.json > metadata.json.tmp && mv metadata.json.tmp metadata.json
           rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" metadata.json $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$project/$GITHUB_RUN_NUMBER/
 

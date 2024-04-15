@@ -104,7 +104,7 @@ jobs:
           arguments: publish
       - name: Get Release Metadata
         #if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
-        uses: Kas-tle/base-release-action@5c25bfadb7a35f7c8041e6aaa2e7af5f217ac2f1
+        uses: Kas-tle/base-release-action@d65e0bf6a5883cedd7ca8eef1a0323c9d7518cbe
         with:
           appID: ${{ secrets.RELEASE_APP_ID }}
           appPrivateKey: ${{ secrets.RELEASE_APP_PK }}
@@ -118,17 +118,6 @@ jobs:
             viaproxy:bootstrap/viaproxy/build/libs/Geyser-ViaProxy.jar
           releaseEnabled: false
           saveMetadata: true
-      - run: | # Just to show metadata works 
-          cat metadata.json
-          echo
-          project=geyser
-          version=$(cat gradle.properties | grep -o "version=[0-9\\.]*" | cut -d"=" -f2)
-          jq --arg project "${project}" --arg version "${version}" '
-            .
-            | .changes |= map({"commit", "summary", "message"}) 
-            | .downloads |= map_values({"name", "sha256"})
-            | {$project, "repo", $version, "number": .build, "changes", "downloads"}
-          ' metadata.json
       - name: Publish to Downloads API
         if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
         shell: bash

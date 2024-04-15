@@ -120,9 +120,10 @@ jobs:
           saveMetadata: true
       - run: | # Just to show metadata works 
           cat metadata.json
+          echo
           project=geyser
           version=$(cat gradle.properties | grep -o "version=[0-9\\.]*" | cut -d"=" -f2)
-          jq -c --arg project "${project}" --arg version "${version}" '
+          jq --arg project "${project}" --arg version "${version}" '
             .
             | .changes |= map({"commit", "summary", "message"}) 
             | .downloads |= map_values({"name", "sha256"})

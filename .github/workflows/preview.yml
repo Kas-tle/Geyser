@@ -3,7 +3,7 @@ name: Upload Preview
 on:
   workflow_dispatch:
     inputs:
-      runId:
+      build:
         required: true
         description: 'ID of the action to pull artifacts from'
       version:
@@ -13,10 +13,14 @@ on:
 jobs:
   upload:
     runs-on: ubuntu-latest
+    env:
+      PROJECT: 'geyser-preview'
+      BUILD: ${{ github.event.inputs.build }}
+      VERSION: ${{ github.event.inputs.version }}
     steps:
       - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
         with:
-          run-id: ${{ github.event.inputs.runId }}
+          run-id: ${{ github.event.inputs.build }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           merge-multiple: true
       - name: 'List Artifacts'
@@ -39,14 +43,16 @@ jobs:
           releaseEnabled: false
           saveMetadata: true
           updateReleaseData: false
-      - run: |
+      - name: Update Generated Metadata
+        #if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
+        run: |
           cat metadata.json
           echo
-          jq --arg project "geyser-preview" --arg version "pr.${{ github.event.inputs.version }}" --arg number "${{ github.event.inputs.runId }}" '
+          cat metadata.json | jq --arg project "${PROJECT}" --arg version "${VERSION}" --arg number "${BUILD}" '
             .
             | .downloads |= map_values({"name", "sha256"})
             | {$project, "repo", $version, "number": $number | tonumber, "changes": [], "downloads"}
-          ' metadata.json
+          ' | tee metadata.json
       - name: Publish to Downloads API
         if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
         shell: bash
@@ -54,23 +60,14 @@ jobs:
           DOWNLOADS_USERNAME: ${{ vars.DOWNLOADS_USERNAME }}
           DOWNLOADS_PRIVATE_KEY: ${{ secrets.DOWNLOADS_PRIVATE_KEY }}
           DOWNLOADS_SERVER_IP: ${{ secrets.DOWNLOADS_SERVER_IP }}
-          RUN_ID: ${{ github.event.inputs.runId }}
-          VERSION: ${{ github.event.inputs.version }}
         run: |
           # Save the private key to a file
           echo "$DOWNLOADS_PRIVATE_KEY" > id_ecdsa
           chmod 600 id_ecdsa
-          # Set the project
-          project=geyser-preview
           # Create the build folder
-          ssh -o StrictHostKeyChecking=no -i id_ecdsa $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP mkdir -p "~/uploads/$project/$RUN_ID/"
+          ssh -o StrictHostKeyChecking=no -i id_ecdsa $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP mkdir -p "~/uploads/$PROJECT/$BUILD/"
           # Copy over artifacts
-          rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" Geyser-*.jar $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$project/$RUN_ID/
+          rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" Geyser-*.jar $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$PROJECT/$BUILD/
           # Run the build script
           # Push the metadata
-          jq -c --arg project "${project}" --arg version "${VERSION}" --arg number "${RUN_ID}" '
-            .
-            | .downloads |= map_values({"name", "sha256"})
-            | {$project, "repo", $version, "number": $number | tonumber, "changes": [], "downloads"}
-          ' metadata.json > metadata.json.tmp && mv metadata.json.tmp metadata.json
-          rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" metadata.json $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$project/$RUN_ID/
+          rsync -P -e "ssh -o StrictHostKeyChecking=no -i id_ecdsa" metadata.json $DOWNLOADS_USERNAME@$DOWNLOADS_SERVER_IP:~/uploads/$PROJECT/$BUILD/

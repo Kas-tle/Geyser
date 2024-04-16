@@ -127,7 +127,7 @@ jobs:
           cat metadata.json
           echo
           version=$(cat gradle.properties | grep -o "version=[0-9\\.]*" | cut -d"=" -f2)
-          cat metadata.json | jq -c --arg project "${PROJECT}" --arg version "${version}" '
+          cat metadata.json | jq --arg project "${PROJECT}" --arg version "${version}" '
             .
             | .changes |= map({"commit", "summary", "message"}) 
             | .downloads |= map_values({"name", "sha256"})

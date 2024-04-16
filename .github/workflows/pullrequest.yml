@@ -115,6 +115,7 @@ jobs:
               workflow_id: 'preview.yml',
               ref: 'actions-testing',
               inputs: {
+                runId: '${{ github.run_id }}',
                 build: '${{ github.run_number }}',
                 version: 'pr.${{ github.event.pull_request.number }}'
               }

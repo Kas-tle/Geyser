@@ -8,7 +8,7 @@ jobs:
     # Forbid access to secrets nor GH Token perms while building the PR
     permissions: {}
     secrets: {}
-    uses: ./.github/workflows/build-remote.yml
+    uses: ${{ github.repository }}/.github/workflows/build-remote.yml@${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref || github.ref_name }}
     with:
       repository: ${{ github.event.pull_request.head.repo.full_name }}
       ref: ${{ github.event.pull_request.head.sha }}
@@ -18,7 +18,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'PR: Needs Testing')
     # Allow access to secrets if we are uploading a preview
     secrets: inherit
-    uses: ./.github/workflows/preview.yml
+    uses: ${{ github.repository }}/.github/workflows/preview.yml@${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref || github.ref_name }}
     with:
       build: ${{ github.run_number }}
       version: pr.${{ github.event.pull_request.number }}

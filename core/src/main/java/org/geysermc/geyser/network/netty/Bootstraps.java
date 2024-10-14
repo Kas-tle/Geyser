@@ -28,6 +28,7 @@ package org.geysermc.geyser.network.netty;
 import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.epoll.EpollChannelOption;
 import io.netty.channel.epoll.Native;
 import io.netty.channel.unix.UnixChannelOption;
 import lombok.experimental.UtilityClass;
@@ -70,9 +71,9 @@ public final class Bootstraps {
     @SuppressWarnings({"rawtypes, unchecked"})
     public static boolean setupBootstrap(AbstractBootstrap bootstrap) {
         boolean success = true;
+        Channel channel = bootstrap.register().channel();
         if (REUSEPORT_AVAILABLE) {
             // Guessing whether so_reuseport is available based on kernel version is cool, but unreliable.
-            Channel channel = bootstrap.register().channel();
             if (channel.config().setOption(UnixChannelOption.SO_REUSEPORT, true)) {
                 bootstrap.option(UnixChannelOption.SO_REUSEPORT, true);
             } else {
@@ -80,9 +81,13 @@ public final class Bootstraps {
                 GeyserImpl.getInstance().getLogger().debug("so_reuseport is not available despite version being " + Native.KERNEL_VERSION);
                 success = false;
             }
-            // Now yeet that channel
-            channel.close();
+
+            // Only possible on Linux with Epoll, but allows proper replies on multiple UDP interfaces when bound to INADDR_ANY
+            if (channel.config().setOption(EpollChannelOption.IP_RECVORIGDSTADDR, true)) {
+                bootstrap.option(EpollChannelOption.IP_RECVORIGDSTADDR, true);
+            }
         }
+        channel.close();
         return success;
     }
 

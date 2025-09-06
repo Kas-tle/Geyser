@@ -2410,6 +2410,7 @@ public class GeyserSession implements GeyserConnection, GeyserCommandSource {
     @Override
     public void closeForm() {
         sendUpstreamPacket(new ClientboundCloseFormPacket());
+        this.formCache.clearRecyclableForms();
     }
 
     public void addCommandEnum(String name, String enums) {

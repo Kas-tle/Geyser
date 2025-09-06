@@ -58,7 +58,7 @@ public class BedrockServerSettingsRequestTranslator extends PacketTranslator<Ser
         }
 
         CustomForm form = SettingsUtils.buildForm(session);
-        int formId = session.getFormCache().addForm(form);
+        int formId = session.getFormCache().registerStaticForm(form);
 
         String jsonData = formDefinitions.codecFor(form).jsonData(form);
 

@@ -28,9 +28,11 @@ package org.geysermc.geyser.session.cache;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import lombok.RequiredArgsConstructor;
 import org.cloudburstmc.protocol.bedrock.packet.ModalFormRequestPacket;
 import org.cloudburstmc.protocol.bedrock.packet.ModalFormResponsePacket;
@@ -45,7 +47,12 @@ import org.geysermc.geyser.network.GameProtocol;
 import org.geysermc.geyser.session.GeyserSession;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -61,24 +68,55 @@ public class FormCache {
 
     private final FormDefinitions formDefinitions = FormDefinitions.instance();
     private final AtomicInteger formIdCounter = new AtomicInteger(0);
-    private final Int2ObjectMap<Form> forms = new Int2ObjectOpenHashMap<>();
+    private final Int2ObjectMap<Form> forms = Int2ObjectMaps.synchronize(new Int2ObjectOpenHashMap<>());
     private final GeyserSession session;
+
+    private final Queue<Integer> availableFormIds = new ConcurrentLinkedQueue<>();
+    private final Set<Integer> nonRecyclableFormIds = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     public boolean hasFormOpen() {
         return !forms.isEmpty();
     }
 
-    public int addForm(Form form) {
+    private int getNextFormId() {
+        Integer recycledId = availableFormIds.poll();
+        return (recycledId != null) ? recycledId : formIdCounter.getAndIncrement();
+    }
+
+    public void showForm(Form form) {
+        int formId = getNextFormId();
+        forms.put(formId, form);
+
+        if (session.getUpstream().isInitialized()) {
+            sendForm(formId, form);
+        }
+    }
+
+    public int registerStaticForm(Form form) {
         int formId = formIdCounter.getAndIncrement();
+        nonRecyclableFormIds.add(formId);
         forms.put(formId, form);
         return formId;
     }
 
-    public void showForm(Form form) {
-        int formId = addForm(form);
+    public void unregisterStaticForm(int formId) {
+        nonRecyclableFormIds.remove(formId);
+        forms.remove(formId);
+    }
 
-        if (session.getUpstream().isInitialized()) {
-            sendForm(formId, form);
+
+    public void clearRecyclableForms() {
+        synchronized (forms) {
+            ObjectIterator<Int2ObjectMap.Entry<Form>> iterator = forms.int2ObjectEntrySet().iterator();
+            while (iterator.hasNext()) {
+                Int2ObjectMap.Entry<Form> entry = iterator.next();
+                int formId = entry.getIntKey();
+
+                if (!nonRecyclableFormIds.contains(formId)) {
+                    availableFormIds.add(formId);
+                    iterator.remove();
+                }
+            }
         }
     }
 
@@ -109,9 +147,15 @@ public class FormCache {
     }
 
     public void handleResponse(ModalFormResponsePacket response) {
-        Form form = forms.remove(response.getFormId());
+        int formId = response.getFormId();
+        Form form = forms.remove(formId);
+        
         if (form == null) {
             return;
+        }
+
+        if (!nonRecyclableFormIds.contains(formId)) {
+            availableFormIds.add(formId);
         }
 
         String responseData = response.getFormData();

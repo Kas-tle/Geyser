@@ -32,6 +32,7 @@ tasks.withType<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar> {
     archiveBaseName.set("Geyser-Standalone")
 
     transform(Log4j2PluginsCacheFileTransformer())
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }
 
 tasks.named<JavaExec>("run") {

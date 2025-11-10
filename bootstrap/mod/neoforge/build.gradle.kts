@@ -8,6 +8,16 @@ architectury {
     neoForge()
 }
 
+
+val commonBundle: Configuration by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
+configurations {
+    get("developmentNeoForge").extendsFrom(commonBundle)
+}
+
 // This is provided by "org.cloudburstmc.math.mutable" too, so yeet.
 // NeoForge's class loader is *really* annoying.
 provided("org.cloudburstmc.math", "api")
@@ -25,6 +35,8 @@ dependencies {
     }
 
     neoForge(libs.neoforge.minecraft)
+
+    commonBundle(project(":mod", configuration = "namedElements")) { isTransitive = false }
 
     api(project(":mod", configuration = "namedElements"))
     shadowBundle(project(path = ":mod", configuration = "transformProductionNeoForge"))
@@ -51,7 +63,10 @@ dependencies {
 
 tasks.withType<Jar> {
     manifest.attributes["Main-Class"] = "org.geysermc.geyser.platform.neoforge.GeyserNeoForgeMain"
+    manifest.attributes["Implementation-Version"] = project.version
 }
+
+
 
 tasks {
     remapJar {
@@ -64,8 +79,15 @@ tasks {
 
     shadowJar {
         // Without this, jackson's service files are not relocated
+        filesMatching("META-INF/services/**") {
+            duplicatesStrategy = DuplicatesStrategy.INCLUDE
+        }
         mergeServiceFiles()
     }
+}
+
+tasks.named<ProcessResources>("processResources") {
+    from(project(":core").sourceSets.main.get().resources)
 }
 
 modrinth {

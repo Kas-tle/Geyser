@@ -59,6 +59,6 @@ repositories {
 
     // Jitpack for e.g. MCPL
     maven("https://jitpack.io") {
-        content { includeGroupByRegex("com\\.github\\..*") }
+        // content { includeGroupByRegex("com\\.github\\..*") }
     }
 }

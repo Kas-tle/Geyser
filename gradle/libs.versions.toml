@@ -138,7 +138,8 @@ gson-record-factory = { group = "com.github.Marcono1234", name = "gson-record-ty
 junit = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junit" }
 minecraftauth = { group = "net.raphimc", name = "MinecraftAuth", version.ref = "minecraftauth" }
 mcprotocollib = { group = "org.geysermc.mcprotocollib", name = "protocol", version.ref = "mcprotocollib" }
-raknet = { group = "org.cloudburstmc.netty", name = "netty-transport-raknet", version.ref = "raknet" }
+# raknet = { group = "org.cloudburstmc.netty", name = "netty-transport-raknet", version.ref = "raknet" }
+raknet = { group = "dev.kastle", name = "Network", version = "efa18f101b" }
 terminalconsoleappender = { group = "net.minecrell", name = "terminalconsoleappender", version.ref = "terminalconsoleappender" }
 velocity-proxy = { group = "com.velocitypowered", name = "velocity-proxy", version.ref = "velocity" }
 velocity-api = { group = "com.velocitypowered", name = "velocity-api", version.ref = "velocity" }

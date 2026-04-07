@@ -32,3 +32,8 @@ java {
         languageVersion = JavaLanguageVersion.of(21)
     }
 }
+
+// idk
+tasks.withType<JavaCompile>().configureEach {
+    javaCompiler.set(javaToolchains.compilerFor(java.toolchain))
+}

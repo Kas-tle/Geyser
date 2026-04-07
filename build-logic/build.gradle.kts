@@ -11,6 +11,12 @@ repositories {
     maven("https://maven.architectury.dev/")
 }
 
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+
 dependencies {
     // This is for the LibsAccessor.kt hack
     // this is OK as long as the same version catalog is used in the main build and build-logic

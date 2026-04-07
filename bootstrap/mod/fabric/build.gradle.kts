@@ -81,3 +81,10 @@ modrinth {
         required.project("fabric-api")
     }
 }
+
+// set explicitly?
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}

@@ -25,3 +25,10 @@ dependencies {
     // Only here to suppress "unknown enum constant EnvType.CLIENT" warnings. DO NOT USE!
     compileOnly(libs.fabric.loader)
 }
+
+// set explicitly?
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}

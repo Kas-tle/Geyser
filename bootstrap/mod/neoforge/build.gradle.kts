@@ -79,3 +79,10 @@ modrinth {
     loaders.add("neoforge")
     uploadFile.set(tasks.getByPath("remapModrinthJar"))
 }
+
+// set explicitly?
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}

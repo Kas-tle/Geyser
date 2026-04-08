@@ -37,3 +37,8 @@ java {
 tasks.withType<JavaCompile>().configureEach {
     javaCompiler.set(javaToolchains.compilerFor(java.toolchain))
 }
+
+// idk
+tasks.withType<JavaExec>().configureEach {
+    javaCompiler.set(javaToolchains.compilerFor(java.toolchain))
+}

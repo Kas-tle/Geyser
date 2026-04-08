@@ -94,5 +94,5 @@ tasks.withType<JavaCompile>().configureEach {
 
 // idk
 tasks.withType<JavaExec>().configureEach {
-    javaCompiler.set(javaToolchains.compilerFor(java.toolchain))
+    javaLauncher.set(javaToolchains.launcherFor(java.toolchain))
 }

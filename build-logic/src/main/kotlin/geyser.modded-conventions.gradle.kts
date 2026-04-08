@@ -59,6 +59,23 @@ java {
     }
 }
 
+val javaToolchains = extensions.getByType<org.gradle.jvm.toolchain.JavaToolchainService>()
+val launcher = javaToolchains.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(21))
+}
+
+tasks.configureEach {
+    try {
+        val method = this.javaClass.getMethod("getJavaLauncher")
+        val prop = method.invoke(this)
+        if (prop is org.gradle.api.provider.Property<*>) {
+            @Suppress("UNCHECKED_CAST")
+            (prop as org.gradle.api.provider.Property<Any>).set(launcher)
+        }
+    } catch (ignored: Exception) {
+    }
+}
+
 configurations {
     create("includeTransitive").isTransitive = true
     create("shadowBundle") {

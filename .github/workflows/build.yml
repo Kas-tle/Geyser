@@ -26,13 +26,13 @@ jobs:
     steps:
       - name: Get Release Info
         id: release-info
-        uses: GeyserMC/actions/previous-release@master
+        uses: GeyserMC/actions/previous-release@fix/esm
         with:
           appID: ${{ secrets.RELEASE_APP_ID }}
           appPrivateKey: ${{ secrets.RELEASE_APP_PK }}
 
       - name: Setup Gradle
-        uses: GeyserMC/actions/setup-gradle-composite@master
+        uses: GeyserMC/actions/setup-gradle-composite@fix/esm
         with:
           setup-java_java-version: 25
 
@@ -42,7 +42,7 @@ jobs:
           BUILD_NUMBER: ${{ steps.release-info.outputs.curentRelease }}
           
       - name: Archive Artifacts
-        uses: GeyserMC/actions/upload-multi-artifact@master
+        uses: GeyserMC/actions/upload-multi-artifact@fix/esm
         if: success()
         with:
           artifacts: |
@@ -71,7 +71,7 @@ jobs:
 
       - name: Get Release Metadata
         if: ${{ (success() || failure()) && github.repository == 'GeyserMC/Geyser' }}
-        uses: GeyserMC/actions/release@master
+        uses: GeyserMC/actions/release@fix/esm
         id: metadata
         with:
           appID: ${{ secrets.RELEASE_APP_ID }}
@@ -91,7 +91,7 @@ jobs:
 
       - name: Publish to Downloads API
         if: ${{ success() && github.repository == 'GeyserMC/Geyser' && github.ref_name == 'master' }}
-        uses: GeyserMC/actions/upload-release@master
+        uses: GeyserMC/actions/upload-release@fix/esm
         with:
           username: ${{ vars.DOWNLOADS_USERNAME }}
           privateKey: ${{ secrets.DOWNLOADS_PRIVATE_KEY }}
@@ -116,7 +116,7 @@ jobs:
 
       - name: Notify Discord
         if: ${{ (success() || failure()) && github.repository == 'GeyserMC/Geyser' }}
-        uses: GeyserMC/actions/notify-discord@master
+        uses: GeyserMC/actions/notify-discord@fix/esm
         with:
           discordWebhook: ${{ secrets.DISCORD_WEBHOOK }}
           status: ${{ job.status }}

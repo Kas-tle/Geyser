@@ -26,12 +26,16 @@
 package org.geysermc.geyser.platform.velocity;
 
 import com.velocitypowered.api.event.proxy.ProxyPingEvent;
+import com.velocitypowered.api.network.HandshakeIntent;
+import com.velocitypowered.api.network.ProtocolState;
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.api.proxy.InboundConnection;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.ServerPing;
+import com.velocitypowered.api.proxy.server.ServerPing.Version;
 import lombok.AllArgsConstructor;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
+import org.geysermc.geyser.network.bedrock.GameProtocol;
 import org.geysermc.geyser.ping.GeyserPingInfo;
 import org.geysermc.geyser.ping.IGeyserPingPassthrough;
 
@@ -49,24 +53,18 @@ public class GeyserVelocityPingPassthrough implements IGeyserPingPassthrough {
         ProxyPingEvent event;
         try {
             event = server.getEventManager().fire(new ProxyPingEvent(new GeyserInboundConnection(inetSocketAddress), ServerPing.builder()
-                    .description(server.getConfiguration().getMotd()).onlinePlayers(server.getPlayerCount())
-                    .maximumPlayers(server.getConfiguration().getShowMaxPlayers()).build())).get();
+                .description(server.getConfiguration().getMotd())
+                .onlinePlayers(server.getPlayerCount())
+                .maximumPlayers(server.getConfiguration().getShowMaxPlayers())
+                .version(new Version(GameProtocol.getJavaProtocolVersion(), GameProtocol.getJavaMinecraftVersion())).build())).get();
         } catch (ExecutionException | InterruptedException e) {
             throw new RuntimeException(e);
         }
-        GeyserPingInfo geyserPingInfo = new GeyserPingInfo(
-                LegacyComponentSerializer.legacy('§').serialize(event.getPing().getDescriptionComponent()),
-                new GeyserPingInfo.Players(
-                        event.getPing().getPlayers().orElseThrow(IllegalStateException::new).getMax(),
-                        event.getPing().getPlayers().orElseThrow(IllegalStateException::new).getOnline()
-                ),
-                new GeyserPingInfo.Version(
-                        event.getPing().getVersion().getName(),
-                        event.getPing().getVersion().getProtocol()
-                )
+        return new GeyserPingInfo(
+                GsonComponentSerializer.gson().serialize(event.getPing().getDescriptionComponent()),
+                event.getPing().getPlayers().map(ServerPing.Players::getMax).orElse(1),
+                event.getPing().getPlayers().map(ServerPing.Players::getOnline).orElse(0)
         );
-        event.getPing().getPlayers().get().getSample().stream().map(ServerPing.SamplePlayer::getName).forEach(geyserPingInfo.getPlayerList()::add);
-        return geyserPingInfo;
     }
 
     private static class GeyserInboundConnection implements InboundConnection {
@@ -88,6 +86,11 @@ public class GeyserVelocityPingPassthrough implements IGeyserPingPassthrough {
         }
 
         @Override
+        public Optional<String> getRawVirtualHost() {
+            return Optional.empty();
+        }
+
+        @Override
         public boolean isActive() {
             return false;
         }
@@ -95,6 +98,16 @@ public class GeyserVelocityPingPassthrough implements IGeyserPingPassthrough {
         @Override
         public ProtocolVersion getProtocolVersion() {
             return ProtocolVersion.MAXIMUM_VERSION;
+        }
+
+        @Override
+        public ProtocolState getProtocolState() {
+            return ProtocolState.STATUS;
+        }
+
+        @Override
+        public HandshakeIntent getHandshakeIntent() {
+            return HandshakeIntent.STATUS;
         }
     }
 

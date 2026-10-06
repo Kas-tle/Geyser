@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2025 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,16 +29,29 @@ import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2LongMap;
+import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import lombok.Getter;
+import org.geysermc.geyser.entity.EntitySpectateHelper;
 import org.geysermc.geyser.entity.type.Entity;
 import org.geysermc.geyser.entity.type.Tickable;
 import org.geysermc.geyser.entity.type.player.PlayerEntity;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.waypoint.GeyserWaypoint;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.StampedLock;
+import java.util.function.Consumer;
 
 /**
  * Each session has its own EntityCache in the occasion that an entity packet is sent specifically
@@ -47,15 +60,30 @@ import java.util.concurrent.atomic.AtomicLong;
 public class EntityCache {
     private final GeyserSession session;
 
-    @Getter
+    /**
+     * Guards the {@link #entities}, {@link #entityIdTranslations} and {@link #entityUuidTranslations} maps.
+     * <p>
+     * All mutations to these maps happen on the session's event loop thread. However, the Geyser entity API exposes
+     * {@link #getEntityByGeyserId(long)}, {@link #getEntityByJavaId(int)} and {@link #getEntityByUuid(UUID)},
+     * which can be called from arbitrary threads. The backing fastutil open-hash maps are not thread safe :/
+     * <p>
+     * A {@link ReentrantReadWriteLock} (rather than a {@link StampedLock}) is used because {@link #removeAllEntities()}
+     * re-enters the write lock via {@link #removeEntity(Entity)}.
+     */
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
     private final Long2ObjectMap<Entity> entities = new Long2ObjectOpenHashMap<>();
     /**
      * A list of all entities that must be ticked.
      */
+    @Getter
     private final List<Tickable> tickableEntities = new ObjectArrayList<>();
     private final Int2LongMap entityIdTranslations = new Int2LongOpenHashMap();
+    private final Object2LongMap<UUID> entityUuidTranslations = new Object2LongOpenHashMap<>();
     private final Map<UUID, PlayerEntity> playerEntities = new Object2ObjectOpenHashMap<>();
     private final Map<UUID, BossBar> bossBars = new Object2ObjectOpenHashMap<>();
+    @Getter
+    private final Set<Entity> dirtyEntities = new ObjectOpenHashSet<>();
 
     @Getter
     private final AtomicLong nextEntityId = new AtomicLong(2L);
@@ -64,79 +92,267 @@ public class EntityCache {
         this.session = session;
     }
 
+    public long nextEntityId() {
+        return nextEntityId.incrementAndGet();
+    }
+
+    /**
+     * Returns the raw, mutable backing entity map. This bypasses the read/write lock that guards the map, so it
+     * <b>must only be accessed on the session's event loop thread</b>, where it is sequential with all mutations. You should never
+     * mutate it directly, use {@link #spawnEntity(Entity)} or {@link #removeEntity(Entity)} and related methods instead.
+     * Off-thread callers - mainly API users - must instead use {@link #getEntityByGeyserId(long)}, {@link #getEntityByJavaId(int)} or
+     * {@link #getEntityByUuid(UUID)}.
+     */
+    public Long2ObjectMap<Entity> getEntitiesUnsafe() {
+        return entities;
+    }
+
     public void spawnEntity(Entity entity) {
         if (cacheEntity(entity)) {
+            // start tracking newly spawned entities. Doing this before the actual entity spawn can result in combining
+            // the otherwise sent metadata packet (in the case of team visibility, which sets the NAME metadata to
+            // empty) with the entity spawn packet (which also includes metadata). Resulting in 1 less packet sent.
+            session.getWorldCache().getScoreboard().entityRegistered(entity);
+
             entity.spawnEntity();
 
             if (entity instanceof Tickable) {
                 // Start ticking it
                 tickableEntities.add((Tickable) entity);
             }
+
+            session.getWaypointCache().addEntity(entity);
         }
     }
 
     public boolean cacheEntity(Entity entity) {
-        // Check to see if the entity exists, otherwise we can end up with duplicated mobs
-        if (!entityIdTranslations.containsKey(entity.getEntityId())) {
-            entityIdTranslations.put(entity.getEntityId(), entity.getGeyserId());
-            entities.put(entity.getGeyserId(), entity);
-            return true;
+        lock.writeLock().lock();
+        try {
+            // Check to see if the entity exists, otherwise we can end up with duplicated mobs
+            if (!entityIdTranslations.containsKey(entity.getEntityId())) {
+                entityIdTranslations.put(entity.getEntityId(), entity.geyserId());
+                entities.put(entity.geyserId(), entity);
+                if (entity.uuid() != null) {
+                    entityUuidTranslations.put(entity.uuid(), entity.geyserId());
+                }
+                return true;
+            }
+            return false;
+        } finally {
+            lock.writeLock().unlock();
         }
-        return false;
     }
 
-    public boolean removeEntity(Entity entity, boolean force) {
-        if (entity instanceof PlayerEntity player) {
-            session.getPlayerWithCustomHeads().remove(player.getUuid());
-        }
-
-        if (entity != null && entity.isValid() && (force || entity.despawnEntity())) {
-            long geyserId = entityIdTranslations.remove(entity.getEntityId());
-            entities.remove(geyserId);
-
-            if (entity instanceof Tickable) {
-                tickableEntities.remove(entity);
+    /**
+     * Moves a cached entity to a fresh Geyser id and returns the new id. For an entity the Bedrock client removed on
+     * its own while Java still has it: the client ignores a spawn for an id it already removed, so the entity has to
+     * be spawned again under a new one. The caller stores the id and sends the spawn.
+     */
+    public long reassignGeyserId(Entity entity) {
+        lock.writeLock().lock();
+        try {
+            long geyserId = nextEntityId();
+            entities.remove(entity.geyserId());
+            entities.put(geyserId, entity);
+            entityIdTranslations.put(entity.getEntityId(), geyserId);
+            if (entity.uuid() != null) {
+                entityUuidTranslations.put(entity.uuid(), geyserId);
             }
-            return true;
+            return geyserId;
+        } finally {
+            lock.writeLock().unlock();
         }
-        return false;
+    }
+
+    public void removeEntity(Entity entity) {
+        if (entity == null) {
+            return;
+        }
+
+        if (entity == session.getSpectatedEntity()) {
+            EntitySpectateHelper.stop(session);
+        }
+
+        if (entity instanceof PlayerEntity player) {
+            session.getPlayerWithCustomHeads().remove(player.uuid());
+        }
+
+        if (entity.isValid()) {
+            entity.despawnEntity();
+        }
+
+        // Keep the three map removals atomic relative to off-thread readers, but avoid holding the
+        // write lock across despawnEntity()/scoreboard callbacks above and below.
+        lock.writeLock().lock();
+        try {
+            entities.remove(entityIdTranslations.remove(entity.getEntityId()));
+            if (entity.uuid() != null) {
+                entityUuidTranslations.removeLong(entity.uuid());
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        // don't track the entity anymore, now that it's removed
+        session.getWorldCache().getScoreboard().entityRemoved(entity);
+
+        if (entity instanceof Tickable) {
+            tickableEntities.remove(entity);
+        }
+
+        session.getWaypointCache().removeEntity(entity);
+
+        dirtyEntities.remove(entity);
+    }
+
+    public void markDirty(Entity entity) {
+        dirtyEntities.add(entity);
     }
 
     public void removeAllEntities() {
-        List<Entity> entities = new ArrayList<>(this.entities.values());
-        for (Entity entity : entities) {
-            removeEntity(entity, false);
+        session.getWorldBorder().clearCollision();
+
+        // removeEntity() calls below re-enter the write lock, which the ReentrantReadWriteLock permits.
+        lock.writeLock().lock();
+        try {
+            List<Entity> entities = new ArrayList<>(this.entities.values());
+            for (Entity entity : entities) {
+                removeEntity(entity);
+            }
+        } finally {
+            lock.writeLock().unlock();
         }
 
         session.getPlayerWithCustomHeads().clear();
     }
 
+    /**
+     * Safe to call from any thread. When called off the session's event loop thread, the lookup is guarded by
+     * the read lock; on the event loop it reads directly since it is sequential with all writes there.
+     */
     public Entity getEntityByGeyserId(long geyserId) {
+        if (session.getTickEventLoop().inEventLoop()) {
+            return getEntityByGeyserId0(geyserId);
+        }
+        lock.readLock().lock();
+        try {
+            return getEntityByGeyserId0(geyserId);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private Entity getEntityByGeyserId0(long geyserId) {
         return entities.get(geyserId);
     }
 
+    /**
+     * Safe to call from any thread. When called off the session's event loop thread, the lookup is guarded by
+     * the read lock; on the event loop it reads directly since it is sequential with all writes there.
+     */
     public Entity getEntityByJavaId(int javaId) {
         if (javaId == session.getPlayerEntity().getEntityId()) {
             return session.getPlayerEntity();
         }
+        if (session.getTickEventLoop().inEventLoop()) {
+            return getEntityByJavaId0(javaId);
+        }
+        lock.readLock().lock();
+        try {
+            return getEntityByJavaId0(javaId);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private Entity getEntityByJavaId0(int javaId) {
+        // Both map reads must happen under the same read-lock acquisition, so the pair is atomic relative to writers.
         return entities.get(entityIdTranslations.get(javaId));
     }
 
+    /**
+     * Safe to call from any thread. When called off the session's event loop thread, the lookup is guarded by
+     * the read lock; on the event loop it reads directly since it is sequential with all writes there.
+     */
+    public Entity getEntityByUuid(UUID uuid) {
+        if (Objects.equals(uuid, session.getPlayerEntity().uuid())) {
+            return session.getPlayerEntity();
+        }
+        if (session.getTickEventLoop().inEventLoop()) {
+            return getEntityByUuid0(uuid);
+        }
+        lock.readLock().lock();
+        try {
+            return getEntityByUuid0(uuid);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private Entity getEntityByUuid0(UUID uuid) {
+        // Both map reads must happen under the same read-lock acquisition
+        return entities.get(entityUuidTranslations.getLong(uuid));
+    }
+
     public void addPlayerEntity(PlayerEntity entity) {
-        // putIfAbsent matches the behavior of playerInfoMap in Java as of 1.19.3
-        playerEntities.putIfAbsent(entity.getUuid(), entity);
+        synchronized (playerEntities) {
+            // putIfAbsent matches the behavior of playerInfoMap in Java as of 1.19.3
+            boolean exists = playerEntities.putIfAbsent(entity.uuid(), entity) != null;
+            if (exists) {
+                return;
+            }
+        }
+
+        // notify scoreboard for new entity
+        var scoreboard = session.getWorldCache().getScoreboard();
+        scoreboard.playerRegistered(entity);
     }
 
     public PlayerEntity getPlayerEntity(UUID uuid) {
-        return playerEntities.get(uuid);
+        synchronized (playerEntities) {
+            return playerEntities.get(uuid);
+        }
+    }
+
+    public List<PlayerEntity> getPlayersByName(String name) {
+        var list = new ArrayList<PlayerEntity>();
+        synchronized (playerEntities) {
+            for (PlayerEntity player : playerEntities.values()) {
+                if (name.equals(player.getUsername())) {
+                    list.add(player);
+                }
+            }
+        }
+        return list;
     }
 
     public PlayerEntity removePlayerEntity(UUID uuid) {
-        return playerEntities.remove(uuid);
+        PlayerEntity player;
+        synchronized (playerEntities) {
+            player = playerEntities.remove(uuid);
+        }
+
+        if (player != null) {
+            // notify scoreboard
+            session.getWorldCache().getScoreboard().playerRemoved(player);
+        }
+        return player;
     }
 
-    public Collection<PlayerEntity> getAllPlayerEntities() {
-        return playerEntities.values();
+    /**
+     * Run a specific bit of code for each cached player entity.
+     * As usual with synchronized, try to minimize the amount of work you because you block the PlayerList collection.
+     */
+    public void forEachPlayerEntity(Consumer<PlayerEntity> player) {
+        synchronized (playerEntities) {
+            playerEntities.values().forEach(player);
+        }
+    }
+
+    public void removeAllPlayerEntities() {
+        synchronized (playerEntities) {
+            playerEntities.clear();
+        }
     }
 
     public void addBossBar(UUID uuid, BossBar bossBar) {
@@ -159,7 +375,8 @@ public class EntityCache {
         bossBars.values().forEach(BossBar::updateBossBar);
     }
 
-    public List<Tickable> getTickableEntities() {
-        return tickableEntities;
+    public void removeAllBossBars() {
+        bossBars.values().forEach(BossBar::removeBossBar);
+        bossBars.clear();
     }
 }

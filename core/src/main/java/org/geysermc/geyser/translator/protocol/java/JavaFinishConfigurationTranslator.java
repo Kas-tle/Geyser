@@ -1,0 +1,97 @@
+/*
+ * Copyright (c) 2024-2025 GeyserMC. http://geysermc.org
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * @author GeyserMC
+ * @link https://github.com/GeyserMC/Geyser
+ */
+
+package org.geysermc.geyser.translator.protocol.java;
+
+import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
+import org.cloudburstmc.protocol.bedrock.packet.CraftingDataPacket;
+import org.cloudburstmc.protocol.bedrock.packet.PlayerListPacket;
+import org.geysermc.geyser.network.bedrock.GameProtocol;
+import org.geysermc.geyser.registry.Registries;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.translator.protocol.PacketTranslator;
+import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.geyser.util.InventoryUtils;
+import org.geysermc.geyser.util.PlayerListUtils;
+import org.geysermc.mcprotocollib.protocol.packet.configuration.clientbound.ClientboundFinishConfigurationPacket;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.geysermc.geyser.inventory.recipe.RecipeUtil.CARTOGRAPHY_RECIPES;
+
+@Translator(packet = ClientboundFinishConfigurationPacket.class)
+public class JavaFinishConfigurationTranslator extends PacketTranslator<ClientboundFinishConfigurationPacket> {
+
+    @Override
+    public void translate(GeyserSession session, ClientboundFinishConfigurationPacket packet) {
+        // Clear the player list, as on Java the player list is cleared after transitioning from config to play phase
+        List<PlayerListPacket.Entry> entries = new ArrayList<>();
+        session.getEntityCache().forEachPlayerEntity(otherPlayer -> {
+            PlayerListPacket.Entry entry = new PlayerListPacket.Entry(otherPlayer.getTabListUuid());
+            entry.setAction(PlayerListPacket.Action.REMOVE);
+            entries.add(entry);
+        });
+        if (!entries.isEmpty()) {
+            PlayerListUtils.batchSendPlayerList(session, entries, PlayerListPacket.Action.REMOVE);
+        }
+        session.getEntityCache().removeAllPlayerEntities();
+
+        // Potion mixes are registered by default, as they are needed to be able to put ingredients into the brewing stand.
+        // (Also add it here so recipes get cleared on configuration - 1.21.3)
+        CraftingDataPacket craftingDataPacket = new CraftingDataPacket();
+        craftingDataPacket.setCleanRecipes(true);
+        if (GameProtocol.is26_40orHigher(session.protocolVersion())) {
+            craftingDataPacket.getMultiData().addAll(CARTOGRAPHY_RECIPES);
+        } else {
+            craftingDataPacket.getCraftingData().addAll(CARTOGRAPHY_RECIPES);
+        }
+        craftingDataPacket.getPotionMixData().addAll(Registries.POTION_MIXES.forVersion(session.getUpstream().getProtocolVersion()));
+        if (session.isSentSpawnPacket()) {
+            session.getUpstream().sendPacket(craftingDataPacket);
+            session.getLastRecipeNetId().set(InventoryUtils.LAST_RECIPE_NET_ID + 1);
+            session.getCraftingRecipes().clear();
+            session.getJavaToBedrockRecipeIds().clear();
+            session.getSmithingRecipes().clear();
+            session.setStonecutterRecipes(Int2ObjectMaps.emptyMap());
+        } else {
+            session.getUpstream().queuePostStartGamePacket(craftingDataPacket);
+        }
+
+        // We can avoid re-sending potion mixes / crafting recipes again in the JavaUpdateRecipesTranslator
+        session.setCleanRecipesRequired(false);
+
+        // while ClientboundLoginPacket holds the level, it doesn't hold the scoreboard.
+        // The ClientboundStartConfigurationPacket indirectly removes the old scoreboard,
+        // and this packet indirectly creates the new one.
+        // This makes this packet a good place to reset the scoreboard.
+        session.getWorldCache().resetScoreboard();
+
+        // Resolve API components from non-vanilla registered items that required registry data to map to MCPL components
+        session.getComponentCache().resolveComponents();
+        // This MUST be called after components are resolved. It uses both the collected data-driven registry information and the resolved components
+        session.getTrimRecipes().initializeBedrockTrimRecipes(session);
+    }
+}

@@ -25,18 +25,54 @@
 
 package org.geysermc.geyser.inventory.recipe;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
-import com.github.steveice10.mc.protocol.data.game.recipe.Ingredient;
-import com.github.steveice10.mc.protocol.data.game.recipe.data.ShapedRecipeData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.RecipeUnlockingRequirement;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.recipe.RecipeData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.recipe.ShapedRecipeData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.descriptor.ItemDescriptorWithCount;
+import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.recipe.display.ShapedCraftingRecipeDisplay;
+import org.geysermc.mcprotocollib.protocol.data.game.recipe.display.slot.SlotDisplay;
 
-public record GeyserShapedRecipe(int width, int height, Ingredient[] ingredients, ItemStack result) implements GeyserRecipe {
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
 
-    public GeyserShapedRecipe(ShapedRecipeData data) {
-        this(data.getWidth(), data.getHeight(), data.getIngredients(), data.getResult());
+public record GeyserShapedRecipe(int id,
+                                 int netId,
+                                 int width,
+                                 int height,
+                                 List<SlotDisplay> ingredients,
+                                 SlotDisplay result) implements GeyserRecipe<ShapedRecipeData> {
+
+    public GeyserShapedRecipe(int id, int netId, ShapedCraftingRecipeDisplay data) {
+        this(id, netId, data.width(), data.height(), data.ingredients(), data.result());
     }
 
     @Override
     public boolean isShaped() {
         return true;
+    }
+
+    @Override
+    public List<ShapedRecipeData> asRecipeData(GeyserSession session) {
+        var bedrockRecipes = RecipeUtil.combinations(session, result, ingredients);
+        if (bedrockRecipes == null) {
+            return List.of();
+        }
+
+        List<ShapedRecipeData> recipeData = new ArrayList<>();
+        ItemData output = bedrockRecipes.right();
+        List<List<ItemDescriptorWithCount>> left = bedrockRecipes.left();
+        int i = 0;
+        for (List<ItemDescriptorWithCount> inputs : left) {
+            // Java matches shaped recipes against the mirrored pattern as well
+            recipeData.add(ShapedRecipeData.shaped(id + "_" + i, width, height, inputs,
+                    Collections.singletonList(output), UUID.randomUUID(), "crafting_table", 0,
+                    netId + i, true, RecipeUnlockingRequirement.INVALID));
+            i++;
+        }
+        return recipeData;
     }
 }

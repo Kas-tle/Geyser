@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +25,6 @@
 
 package org.geysermc.geyser.api.pack;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.geysermc.geyser.api.GeyserApi;
 
 import java.io.IOException;
@@ -35,6 +34,7 @@ import java.nio.file.Path;
 /**
  * Represents a pack codec that can be used
  * to provide resource packs to clients.
+ * @since 2.1.1
  */
 public abstract class PackCodec {
 
@@ -42,41 +42,69 @@ public abstract class PackCodec {
      * Gets the sha256 hash of the resource pack.
      *
      * @return the hash of the resource pack
+     * @since 2.1.1
      */
-    public abstract byte @NonNull [] sha256();
+    public abstract byte[] sha256();
 
     /**
      * Gets the resource pack size.
      *
      * @return the resource pack file size
+     * @since 2.1.1
      */
     public abstract long size();
 
     /**
-     * Serializes the given resource pack into a byte buffer.
-     *
-     * @param resourcePack the resource pack to serialize
-     * @return the serialized resource pack
+     * @deprecated use {@link #serialize()} instead.
      */
-    @NonNull
-    public abstract SeekableByteChannel serialize(@NonNull ResourcePack resourcePack) throws IOException;
+    @Deprecated
+    public SeekableByteChannel serialize(ResourcePack resourcePack) throws IOException {
+        return serialize();
+    }
+
+    /**
+     * Serializes the given codec into a byte buffer.
+     *
+     * @return the serialized resource pack
+     * @since 2.6.2
+     */
+    public abstract SeekableByteChannel serialize() throws IOException;
 
     /**
      * Creates a new resource pack from this codec.
      *
      * @return the new resource pack
+     * @since 2.1.1
      */
-    @NonNull
     protected abstract ResourcePack create();
+
+    /**
+     * Creates a new resource pack builder from this codec.
+     *
+     * @return the new resource pack builder
+     * @since 2.6.2
+     */
+    protected abstract ResourcePack.Builder createBuilder();
 
     /**
      * Creates a new pack provider from the given path.
      *
      * @param path the path to create the pack provider from
      * @return the new pack provider
+     * @since 2.1.1
      */
-    @NonNull
-    public static PackCodec path(@NonNull Path path) {
+    public static PackCodec path(Path path) {
         return GeyserApi.api().provider(PathPackCodec.class, path);
+    }
+
+    /**
+     * Creates a new pack provider from the given url.
+     *
+     * @param url the url to create the pack provider from
+     * @return the new pack provider
+     * @since 2.6.2
+     */
+    public static PackCodec url(String url) {
+        return GeyserApi.api().provider(UrlPackCodec.class, url);
     }
 }

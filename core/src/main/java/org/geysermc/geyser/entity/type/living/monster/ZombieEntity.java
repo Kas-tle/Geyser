@@ -25,25 +25,20 @@
 
 package org.geysermc.geyser.entity.type.living.monster;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import org.cloudburstmc.math.vector.Vector3f;
-import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
 
 public class ZombieEntity extends MonsterEntity {
     private boolean convertingToDrowned = false;
 
-    public ZombieEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public ZombieEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setZombieBaby(BooleanEntityMetadata entityMetadata) {
         boolean isBaby = entityMetadata.getPrimitiveValue();
-        dirtyMetadata.put(EntityDataTypes.SCALE, isBaby ? .55f : 1.0f);
+        setScale(isBaby ? .55f : 1.0f);
         setFlag(EntityFlag.BABY, isBaby);
 
         updateMountOffset();
@@ -57,5 +52,10 @@ public class ZombieEntity extends MonsterEntity {
     @Override
     protected boolean isShaking() {
         return convertingToDrowned || super.isShaking();
+    }
+
+    @Override
+    public boolean useArmSwingAttack() {
+        return true;
     }
 }

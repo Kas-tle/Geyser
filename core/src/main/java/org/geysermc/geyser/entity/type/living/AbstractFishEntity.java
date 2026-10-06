@@ -25,22 +25,18 @@
 
 package org.geysermc.geyser.entity.type.living;
 
-import com.github.steveice10.mc.protocol.data.game.entity.player.Hand;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.inventory.GeyserItemStack;
-import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.util.EntityUtils;
 import org.geysermc.geyser.util.InteractionResult;
-
-import javax.annotation.Nonnull;
-import java.util.UUID;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class AbstractFishEntity extends WaterEntity {
 
-    public AbstractFishEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public AbstractFishEntity(EntitySpawnContext context) {
+        super(context);
 
         setFlag(EntityFlag.CAN_SWIM, true);
         setFlag(EntityFlag.BREATHING, true);
@@ -48,9 +44,9 @@ public class AbstractFishEntity extends WaterEntity {
         setFlag(EntityFlag.HAS_GRAVITY, false);
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractionResult mobInteract(Hand hand, @Nonnull GeyserItemStack itemInHand) {
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
         if (EntityUtils.attemptToBucket(itemInHand)) {
             return InteractionResult.SUCCESS;
         } else {

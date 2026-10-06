@@ -25,7 +25,6 @@
 
 package org.geysermc.geyser.translator.protocol.java.entity.player;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.entity.player.ClientboundSetExperiencePacket;
 import org.cloudburstmc.protocol.bedrock.data.AttributeData;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateAttributesPacket;
 import org.geysermc.geyser.entity.attribute.GeyserAttributeType;
@@ -33,6 +32,7 @@ import org.geysermc.geyser.entity.type.player.SessionPlayerEntity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundSetExperiencePacket;
 
 import java.util.Arrays;
 
@@ -49,7 +49,7 @@ public class JavaSetExperienceTranslator extends PacketTranslator<ClientboundSet
         entity.getAttributes().put(GeyserAttributeType.EXPERIENCE_LEVEL, experienceLevel);
 
         UpdateAttributesPacket attributesPacket = new UpdateAttributesPacket();
-        attributesPacket.setRuntimeEntityId(session.getPlayerEntity().getGeyserId());
+        attributesPacket.setRuntimeEntityId(session.getPlayerEntity().geyserId());
         attributesPacket.setAttributes(Arrays.asList(experience, experienceLevel));
         session.sendUpstreamPacket(attributesPacket);
     }

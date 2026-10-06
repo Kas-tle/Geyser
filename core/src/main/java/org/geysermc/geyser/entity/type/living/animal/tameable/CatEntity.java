@@ -25,42 +25,43 @@
 
 package org.geysermc.geyser.entity.type.living.animal.tameable;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.player.Hand;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.entity.type.living.animal.VariantIntHolder;
 import org.geysermc.geyser.inventory.GeyserItemStack;
-import org.geysermc.geyser.item.Items;
 import org.geysermc.geyser.item.type.Item;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.registry.JavaRegistries;
+import org.geysermc.geyser.session.cache.registry.JavaRegistryKey;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
+import org.geysermc.geyser.session.cache.tags.Tag;
 import org.geysermc.geyser.util.InteractionResult;
 import org.geysermc.geyser.util.InteractiveTag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
-import javax.annotation.Nonnull;
-import java.util.UUID;
+public class CatEntity extends TameableEntity implements VariantIntHolder {
 
-public class CatEntity extends TameableEntity {
+    private byte collarColor = 14; // Red - default
 
-    private byte collarColor;
-
-    public CatEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public CatEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
     protected void initializeMetadata() {
         super.initializeMetadata();
         // Default value (minecraft:black).
-        dirtyMetadata.put(EntityDataTypes.VARIANT, 1);
+        metadata.put(EntityDataTypes.VARIANT, 1);
     }
 
     @Override
     public void updateRotation(float yaw, float pitch, boolean isOnGround) {
-        moveRelative(0, 0, 0, yaw, pitch, yaw, isOnGround);
+        moveRelativeRaw(0, 0, 0, yaw, pitch, yaw, isOnGround);
     }
 
     @Override
@@ -76,23 +77,17 @@ public class CatEntity extends TameableEntity {
     @Override
     public void setTameableFlags(ByteEntityMetadata entityMetadata) {
         super.setTameableFlags(entityMetadata);
-        // Update collar color if tamed
-        if (getFlag(EntityFlag.TAMED)) {
-            dirtyMetadata.put(EntityDataTypes.COLOR, collarColor);
-        }
+        updateCollarColor();
     }
 
-    public void setCatVariant(IntEntityMetadata entityMetadata) {
-        // Different colors in Java and Bedrock for some reason
-        int metadataValue = entityMetadata.getPrimitiveValue();
-        int variantColor = switch (metadataValue) {
-            case 0 -> 8;
-            case 8 -> 0;
-            case 9 -> 10;
-            case 10 -> 9;
-            default -> metadataValue;
-        };
-        dirtyMetadata.put(EntityDataTypes.VARIANT, variantColor);
+    @Override
+    public JavaRegistryKey<BuiltInVariant> variantRegistry() {
+        return JavaRegistries.CAT_VARIANT;
+    }
+
+    @Override
+    public void setBedrockVariantId(int bedrockId) {
+        metadata.put(EntityDataTypes.VARIANT, bedrockId);
     }
 
     public void setResting(BooleanEntityMetadata entityMetadata) {
@@ -101,22 +96,26 @@ public class CatEntity extends TameableEntity {
 
     public void setCollarColor(IntEntityMetadata entityMetadata) {
         collarColor = (byte) entityMetadata.getPrimitiveValue();
+        updateCollarColor();
+    }
+
+    private void updateCollarColor() {
         // Needed or else wild cats are a red color
         if (getFlag(EntityFlag.TAMED)) {
-            dirtyMetadata.put(EntityDataTypes.COLOR, collarColor);
+            metadata.put(EntityDataTypes.COLOR, collarColor);
         }
     }
 
     @Override
-    public boolean canEat(Item item) {
-        return item == Items.COD || item == Items.SALMON;
+    protected @Nullable Tag<Item> getFoodTag() {
+        return ItemTag.CAT_FOOD;
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractiveTag testMobInteraction(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
         boolean tamed = getFlag(EntityFlag.TAMED);
-        if (tamed && ownerBedrockId == session.getPlayerEntity().getGeyserId()) {
+        if (tamed && ownerBedrockId == session.getPlayerEntity().geyserId()) {
             // Toggle sitting
             return getFlag(EntityFlag.SITTING) ? InteractiveTag.STAND : InteractiveTag.SIT;
         } else {
@@ -124,15 +123,31 @@ public class CatEntity extends TameableEntity {
         }
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractionResult mobInteract(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
         boolean tamed = getFlag(EntityFlag.TAMED);
-        if (tamed && ownerBedrockId == session.getPlayerEntity().getGeyserId()) {
+        if (tamed && ownerBedrockId == session.getPlayerEntity().geyserId()) {
             return InteractionResult.SUCCESS;
         } else {
             // Attempt to feed
             return !canEat(itemInHand) || health >= maxHealth && tamed ? InteractionResult.PASS : InteractionResult.SUCCESS;
         }
+    }
+
+    // Ordered by bedrock id
+    // TODO: are these ordered correctly?
+    public enum BuiltInVariant implements BuiltIn {
+        WHITE,
+        BLACK,
+        RED,
+        SIAMESE,
+        BRITISH_SHORTHAIR,
+        CALICO,
+        PERSIAN,
+        RAGDOLL,
+        TABBY,
+        ALL_BLACK,
+        JELLIE
     }
 }

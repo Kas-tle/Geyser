@@ -25,8 +25,9 @@
 
 package org.geysermc.geyser.translator.protocol.bedrock;
 
-import com.github.steveice10.mc.protocol.packet.ingame.serverbound.inventory.ServerboundSetJigsawBlockPacket;
-import com.github.steveice10.mc.protocol.packet.ingame.serverbound.level.ServerboundSignUpdatePacket;
+import org.geysermc.geyser.util.MinecraftKey;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.inventory.ServerboundSetJigsawBlockPacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.serverbound.level.ServerboundSignUpdatePacket;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.protocol.bedrock.packet.BlockEntityDataPacket;
@@ -47,7 +48,7 @@ public class BedrockBlockEntityDataTranslator extends PacketTranslator<BlockEnti
             // Hanging signs are narrower
             int widthMax = SignUtils.getSignWidthMax(id.startsWith("Hanging"));
 
-            String text = MessageTranslator.convertToPlainText(
+            String text = MessageTranslator.convertIncomingToPlainText(
                 tag.getCompound(session.getWorldCache().isEditingSignOnFront() ? "FrontText" : "BackText").getString("Text"));
             // Note: as of 1.18.30, only one packet is sent from Bedrock when the sign is finished.
             // Previous versions did not have this behavior.
@@ -118,8 +119,10 @@ public class BedrockBlockEntityDataTranslator extends PacketTranslator<BlockEnti
             String pool = tag.getString("target_pool");
             String finalState = tag.getString("final_state");
             String joint = tag.getString("joint");
-            ServerboundSetJigsawBlockPacket jigsawPacket = new ServerboundSetJigsawBlockPacket(pos, name, target, pool,
-                    finalState, joint);
+            // last two parameters are priority values that Bedrock doesn't have (yet?)
+            ServerboundSetJigsawBlockPacket jigsawPacket = new ServerboundSetJigsawBlockPacket(pos,
+                    MinecraftKey.key(name), MinecraftKey.key(target), MinecraftKey.key(pool),
+                    finalState, joint, 0, 0);
             session.sendDownstreamGamePacket(jigsawPacket);
         }
 

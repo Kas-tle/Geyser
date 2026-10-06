@@ -25,15 +25,19 @@
 
 package org.geysermc.geyser;
 
-import org.geysermc.geyser.command.GeyserCommandManager;
-import org.geysermc.geyser.configuration.GeyserConfiguration;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.geysermc.geyser.api.util.PlatformType;
+import org.geysermc.geyser.command.CommandRegistry;
+import org.geysermc.geyser.configuration.ConfigLoader;
+import org.geysermc.geyser.configuration.GeyserConfig;
 import org.geysermc.geyser.dump.BootstrapDumpInfo;
 import org.geysermc.geyser.level.GeyserWorldManager;
 import org.geysermc.geyser.level.WorldManager;
 import org.geysermc.geyser.ping.IGeyserPingPassthrough;
+import org.geysermc.geyser.util.metrics.MetricsPlatform;
+import org.geysermc.geyser.util.metrics.ProvidedMetricsPlatform;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.io.InputStream;
 import java.net.SocketAddress;
 import java.nio.file.Path;
@@ -44,21 +48,43 @@ public interface GeyserBootstrap {
     GeyserWorldManager DEFAULT_CHUNK_MANAGER = new GeyserWorldManager();
 
     /**
-     * Called when the GeyserBootstrap is enabled
+     * Called when the GeyserBootstrap is initialized.
+     * This will only be called once, when Geyser is loading. Calling this must
+     * happen before {@link #onGeyserEnable()}, since this "sets up" Geyser.
      */
-    void onEnable();
+    void onGeyserInitialize();
 
     /**
-     * Called when the GeyserBootstrap is disabled
+     * Called when the GeyserBootstrap is enabled/reloaded.
+     * This starts Geyser, after which, Geyser is in a player-accepting state.
      */
-    void onDisable();
+    void onGeyserEnable();
 
     /**
-     * Returns the current GeyserConfiguration
+     * Called when the GeyserBootstrap is disabled - either before a reload,
+     * of before fully shutting down.
+     */
+    void onGeyserDisable();
+
+    /**
+     * Called when the GeyserBootstrap is shutting down.
+     */
+    void onGeyserShutdown();
+
+    /**
+     * Returns the platform type this Geyser instance is running on.
      *
-     * @return The current GeyserConfiguration
+     * @return the PlatformType this Geyser instance is running on.
      */
-    GeyserConfiguration getGeyserConfig();
+    @NonNull
+    PlatformType platformType();
+
+    /**
+     * Returns the current GeyserConfig
+     *
+     * @return The current GeyserConfig
+     */
+    GeyserConfig config();
 
     /**
      * Returns the current GeyserLogger
@@ -68,17 +94,18 @@ public interface GeyserBootstrap {
     GeyserLogger getGeyserLogger();
 
     /**
-     * Returns the current CommandManager
+     * Returns the current CommandRegistry
      *
-     * @return The current CommandManager
+     * @return The current CommandRegistry
      */
-    GeyserCommandManager getGeyserCommandManager();
+    CommandRegistry getCommandRegistry();
 
     /**
      * Returns the current PingPassthrough manager
      *
      * @return The current PingPassthrough manager
      */
+    @Nullable
     IGeyserPingPassthrough getGeyserPingPassthrough();
 
     /**
@@ -135,6 +162,11 @@ public interface GeyserBootstrap {
     }
 
     /**
+     * @return  the name of the server platform Geyser is running on.
+     */
+    @NonNull String getServerPlatform();
+
+    /**
      * Get an InputStream for the given resource path.
      * Overridden on platforms that have different class loader properties.
      *
@@ -151,7 +183,7 @@ public interface GeyserBootstrap {
      * @param resource Resource to get
      * @return InputStream of the given resource
      */
-    default @Nonnull InputStream getResource(String resource) {
+    default @NonNull InputStream getResourceOrThrow(@NonNull String resource) {
         InputStream stream = getResourceOrNull(resource);
         if (stream == null) {
             throw new AssertionError("Unable to find resource: " + resource);
@@ -162,7 +194,7 @@ public interface GeyserBootstrap {
     /**
      * @return the bind address being used by the Java server.
      */
-    @Nonnull
+    @NonNull
     String getServerBindAddress();
 
     /**
@@ -174,4 +206,18 @@ public interface GeyserBootstrap {
      * Tests if Floodgate is installed, loads the Floodgate key if so, and returns the result of Floodgate installed.
      */
     boolean testFloodgatePluginPresent();
+
+    /**
+     * TEMPORARY - will be removed after The Merge:tm:.
+     */
+    Path getFloodgateKeyPath();
+
+    @Nullable
+    default MetricsPlatform createMetricsPlatform() {
+        return new ProvidedMetricsPlatform();
+    }
+
+    default <T extends GeyserConfig> T loadConfig(Class<T> configClass) {
+        return new ConfigLoader(this).createFolder().load(configClass);
+    }
 }

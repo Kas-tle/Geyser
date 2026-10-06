@@ -25,49 +25,51 @@
 
 package org.geysermc.geyser.ping;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonSetter;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
+import com.google.gson.annotations.JsonAdapter;
 import lombok.Data;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collection;
+import java.lang.reflect.Type;
 
+/**
+ * The structure of this class and its nested classes are specifically
+ * designed for the format received by {@link GeyserLegacyPingPassthrough}.
+ */
 @Data
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class GeyserPingInfo {
 
+    @Nullable
+    @JsonAdapter(DescriptionDeserializer.class)
     private String description;
 
     private Players players;
-    private Version version;
-
-    @JsonIgnore
-    private Collection<String> playerList = new ArrayList<>();
 
     public GeyserPingInfo() {
+        // for json mapping
     }
 
-    public GeyserPingInfo(String description, Players players, Version version) {
+    public GeyserPingInfo(@Nullable String description, Players players) {
         this.description = description;
         this.players = players;
-        this.version = version;
     }
 
-    @JsonSetter("description")
-    void setDescription(JsonNode description) {
-        this.description = description.toString();
+    public GeyserPingInfo(@Nullable String description, int maxPlayers, int onlinePlayers) {
+        this.description = description;
+        this.players = new Players(maxPlayers, onlinePlayers);
     }
 
     @Data
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Players {
 
         private int max;
         private int online;
 
         public Players() {
+            // for json mapping
         }
 
         public Players(int max, int online) {
@@ -76,18 +78,13 @@ public class GeyserPingInfo {
         }
     }
 
-    @Data
-    public static class Version {
-
-        private String name;
-        private int protocol;
-
-        public Version() {
-        }
-
-        public Version(String name, int protocol) {
-            this.name = name;
-            this.protocol = protocol;
+    /**
+     * So GSON does not complain how we are treating Description - it will be converted to a proper Component later.
+     */
+    private static final class DescriptionDeserializer implements JsonDeserializer<String> {
+        @Override
+        public String deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+            return json.toString();
         }
     }
 }

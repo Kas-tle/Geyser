@@ -25,6 +25,8 @@
 
 package org.geysermc.geyser.util;
 
+import org.geysermc.geyser.GeyserImpl;
+
 import java.io.File;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -37,19 +39,26 @@ public final class CpuUtils {
 
     public static String tryGetProcessorName() {
         try {
-            if (new File("/proc/cpuinfo").canRead()) {
+            String osName = System.getProperty("os.name", "unknown").toLowerCase();
+            if (osName.contains("linux") && new File("/proc/cpuinfo").canRead()) {
                 return getLinuxProcessorName();
-            } else {
+            } else if (osName.contains("windows")) {
                 return getWindowsProcessorName();
+            } else if (osName.contains("mac")) {
+                return getMacProcessorName();
+            } else {
+                GeyserImpl.getInstance().getLogger().warning("Couldn't determine OS to get processor name! The OS name is " + osName);
+                return "unknown";
             }
         } catch (Exception e) {
-            return e.getMessage();
+            GeyserImpl.getInstance().getLogger().warning("Couldn't get processor name! " + e.getMessage());
+            return "unknown";
         }
     }
 
     /**
      * Much of the code here was copied from the OSHI project. This is simply stripped down to only get the CPU model.
-     * https://github.com/oshi/oshi/
+     * <a href="https://github.com/oshi/oshi/">See here</a>
      */
     private static String getLinuxProcessorName() throws Exception {
         List<String> lines = Files.readAllLines(Paths.get("/proc/cpuinfo"), StandardCharsets.UTF_8);
@@ -60,11 +69,12 @@ public final class CpuUtils {
                 return splitLine[1];
             }
         }
+        GeyserImpl.getInstance().getLogger().warning("Couldn't parse processor name!");
         return "unknown";
     }
 
     /**
-     * https://stackoverflow.com/a/6327663
+     * <a href="https://stackoverflow.com/a/6327663">See here</a>
      */
     private static String getWindowsProcessorName() throws Exception {
         final String cpuNameCmd = "reg query \"HKLM\\HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0\" /v ProcessorNameString";
@@ -83,10 +93,33 @@ public final class CpuUtils {
         int p = result.indexOf(regstrToken);
 
         if (p == -1) {
-            return null;
+            GeyserImpl.getInstance().getLogger().warning("Couldn't parse processor name!");
+            return "unknown";
         }
 
         return result.substring(p + regstrToken.length()).trim();
+    }
+
+    /**
+     * <a href="https://stackoverflow.com/a/62718963">See here</a>
+     */
+    private static String getMacProcessorName() throws Exception {
+        Process process = Runtime.getRuntime().exec(new String[]{"sysctl", "-n", "machdep.cpu.brand_string"});
+        process.waitFor();
+        InputStream is = process.getInputStream();
+
+        StringBuilder sb = new StringBuilder();
+        while (is.available() != 0) {
+            sb.append((char) is.read());
+        }
+
+        String result = sb.toString().trim();
+        if (!result.isEmpty()) {
+            return result;
+        } else {
+            GeyserImpl.getInstance().getLogger().warning("Couldn't parse processor name!");
+            return "unknown";
+        }
     }
 
     private CpuUtils() {

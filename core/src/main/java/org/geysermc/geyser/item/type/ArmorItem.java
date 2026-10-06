@@ -25,57 +25,57 @@
 
 package org.geysermc.geyser.item.type;
 
-import com.github.steveice10.opennbt.tag.builtin.CompoundTag;
-import com.github.steveice10.opennbt.tag.builtin.StringTag;
+import net.kyori.adventure.key.Key;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.geysermc.geyser.item.ArmorMaterial;
-import org.geysermc.geyser.registry.type.ItemMapping;
+import org.cloudburstmc.nbt.NbtMap;
+import org.cloudburstmc.nbt.NbtMapBuilder;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.item.TooltipOptions;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.registry.JavaRegistries;
+import org.geysermc.geyser.translator.item.BedrockItemBuilder;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.ArmorTrim;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
 
 public class ArmorItem extends Item {
-    private final ArmorMaterial material;
 
-    public ArmorItem(String javaIdentifier, ArmorMaterial material, Builder builder) {
+    public ArmorItem(String javaIdentifier, Builder builder) {
         super(javaIdentifier, builder);
-        this.material = material;
     }
 
     @Override
-    public void translateNbtToBedrock(@NonNull GeyserSession session, @NonNull CompoundTag tag) {
-        super.translateNbtToBedrock(session, tag);
+    public void translateComponentsToBedrock(@NonNull GeyserSession session, @NonNull DataComponents components, @NonNull TooltipOptions tooltip, @NonNull BedrockItemBuilder builder) {
+        super.translateComponentsToBedrock(session, components, tooltip, builder);
 
-        if (tag.get("Trim") instanceof CompoundTag trim) {
-            StringTag material = trim.remove("material");
-            StringTag pattern = trim.remove("pattern");
-            // bedrock has an uppercase first letter key, and the value is not namespaced
-            trim.put(new StringTag("Material", stripNamespace(material.getValue())));
-            trim.put(new StringTag("Pattern", stripNamespace(pattern.getValue())));
+        ArmorTrim trim = components.get(DataComponentTypes.TRIM);
+        if (trim != null) {
+            Key material;
+            if (trim.material().isId()) {
+                material = JavaRegistries.TRIM_MATERIAL.key(session, trim.material().id());
+            } else {
+                GeyserImpl.getInstance().getLogger().debug("Unable to translate non-id trim material: " + trim);
+                return;
+            }
+
+            Key pattern;
+            if (trim.pattern().isId()) {
+                pattern = JavaRegistries.TRIM_PATTERN.key(session, trim.pattern().id());
+            } else {
+                GeyserImpl.getInstance().getLogger().debug("Unable to translate non-id trim pattern: " + trim);
+                return;
+            }
+
+            if (material != null && pattern != null) {
+                NbtMapBuilder trimBuilder = NbtMap.builder();
+                // Strip namespace from identifiers - Bedrock expects just the path part
+                // e.g., "minecraft:iron" -> "iron", "civilization:frost_trim" -> "frost_trim"
+                trimBuilder.put("Material", material.value());
+                trimBuilder.put("Pattern", pattern.value());
+                builder.putCompound("Trim", trimBuilder.build());
+            } else {
+                GeyserImpl.getInstance().getLogger().debug("Unknown trim material/pattern: %s", trim);
+            }
         }
-    }
-
-    @Override
-    public void translateNbtToJava(@NonNull CompoundTag tag, @NonNull ItemMapping mapping) {
-        super.translateNbtToJava(tag, mapping);
-
-        if (tag.get("Trim") instanceof CompoundTag trim) {
-            StringTag material = trim.remove("Material");
-            StringTag pattern = trim.remove("Pattern");
-            // java has a lowercase key, and namespaced value
-            trim.put(new StringTag("material", "minecraft:" + material.getValue()));
-            trim.put(new StringTag("pattern", "minecraft:" + pattern.getValue()));
-        }
-    }
-
-    @Override
-    public boolean isValidRepairItem(Item other) {
-        return material.getRepairIngredient() == other;
-    }
-
-    private static String stripNamespace(String identifier) {
-        int i = identifier.indexOf(':');
-        if (i >= 0) {
-            return identifier.substring(i + 1);
-        }
-        return identifier;
     }
 }

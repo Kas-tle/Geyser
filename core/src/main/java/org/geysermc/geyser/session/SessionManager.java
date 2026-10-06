@@ -28,10 +28,16 @@ package org.geysermc.geyser.session;
 import com.google.common.collect.ImmutableList;
 import lombok.AccessLevel;
 import lombok.Getter;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.geysermc.geyser.text.GeyserLocale;
 
-import javax.annotation.Nonnull;
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class SessionManager {
@@ -62,14 +68,23 @@ public final class SessionManager {
     }
 
     public void removeSession(GeyserSession session) {
-        UUID uuid = session.getPlayerEntity().getUuid();
+        UUID uuid = session.getPlayerEntity().uuid();
         if (uuid == null || sessions.remove(uuid) == null) {
             // Connection was likely pending
             pendingSessions.remove(session);
         }
     }
 
-    public GeyserSession sessionByXuid(@Nonnull String xuid) {
+    public boolean isXuidAlreadyPending(String xuid) {
+        for (GeyserSession session : pendingSessions) {
+            if (session.xuid().equals(xuid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public @Nullable GeyserSession sessionByXuid(@NonNull String xuid) {
         Objects.requireNonNull(xuid);
         for (GeyserSession session : sessions.values()) {
             if (session.xuid().equals(xuid)) {

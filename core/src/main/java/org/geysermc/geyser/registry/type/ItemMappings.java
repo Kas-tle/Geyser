@@ -25,23 +25,26 @@
 
 package org.geysermc.geyser.registry.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import lombok.Builder;
 import lombok.Value;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
 import org.cloudburstmc.protocol.bedrock.data.definitions.ItemDefinition;
-import org.cloudburstmc.protocol.bedrock.data.inventory.ComponentItemData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.CreativeItemData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.CreativeItemGroup;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
 import org.cloudburstmc.protocol.common.DefinitionRegistry;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.api.block.custom.CustomBlockData;
+import org.geysermc.geyser.inventory.GeyserItemStack;
 import org.geysermc.geyser.inventory.item.StoredItemMappings;
 import org.geysermc.geyser.item.Items;
 import org.geysermc.geyser.item.type.Item;
-import org.geysermc.geyser.item.type.PotionItem;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
 
 import java.util.List;
 import java.util.Map;
@@ -60,8 +63,10 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
      * A unique exception as this is an item in Bedrock, but not in Java.
      */
     ItemMapping lodestoneCompass;
+    Int2ObjectMap<ItemMapping> lightBlocks;
 
-    ItemData[] creativeItems;
+    List<CreativeItemGroup> creativeItemGroups;
+    List<CreativeItemData> creativeItems;
     Int2ObjectMap<ItemDefinition> itemDefinitions;
 
     StoredItemMappings storedItems;
@@ -69,21 +74,35 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
 
     List<ItemDefinition> buckets;
     List<ItemDefinition> boats;
-    List<ItemData> carpets;
-
-    List<ComponentItemData> componentItemData;
     Int2ObjectMap<String> customIdMappings;
+    // the item definition runtime id that is actually for the block
+    // that has the block definition with a 0 runtime id
+    // as of 1.21.110: cyan_terracotta
+    // array since it could be multiple
+    Integer[] zeroBlockDefinitionRuntimeId;
+
+    IntSet nonVanillaCustomItemIds;
 
     Object2ObjectMap<CustomBlockData, ItemDefinition> customBlockItemDefinitions;
+
+    /**
+     * Gets an {@link ItemMapping} from the given {@link GeyserItemStack}.
+     *
+     * @param itemStack the itemstack
+     * @return an item entry from the given item stack
+     */
+    public ItemMapping getMapping(@NonNull GeyserItemStack itemStack) {
+        return this.getMapping(itemStack.getJavaId());
+    }
 
     /**
      * Gets an {@link ItemMapping} from the given {@link ItemStack}.
      *
      * @param itemStack the itemstack
-     * @return an item entry from the given java edition identifier
+     * @return an item entry from the given java edition item stack
      */
     @NonNull
-    public ItemMapping getMapping(ItemStack itemStack) {
+    public ItemMapping getMapping(@NonNull ItemStack itemStack) {
         return this.getMapping(itemStack.getId());
     }
 
@@ -99,9 +118,9 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
         return javaId >= 0 && javaId < this.items.length ? this.items[javaId] : ItemMapping.AIR;
     }
 
-    @Nullable
+    @NonNull
     public ItemMapping getMapping(Item javaItem) {
-        return getMapping(javaItem.javaIdentifier());
+        return getMapping(javaItem.javaId());
     }
 
     /**
@@ -138,7 +157,12 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
             return lodestoneCompass;
         }
 
-        boolean isBlock = data.getBlockDefinition() != null;
+        ItemMapping lightBlock = lightBlocks.get(definition.getRuntimeId());
+        if (lightBlock != null) {
+            return lightBlock;
+        }
+
+        boolean isBlock = isValidBlockItem(data);
         boolean hasDamage = data.getDamage() != 0;
 
         for (ItemMapping mapping : this.items) {
@@ -149,9 +173,8 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
                     }
                 } else {
                     if (!(mapping.getBedrockData() == data.getDamage() ||
-                            // Make exceptions for potions, tipped arrows, firework stars, and goat horns, whose damage values can vary
-                            (mapping.getJavaItem() instanceof PotionItem || mapping.getJavaItem() == Items.ARROW
-                                    || mapping.getJavaItem() == Items.FIREWORK_STAR || mapping.getJavaItem() == Items.GOAT_HORN))) {
+                            // Make exceptions for items whose damage values can vary
+                            (mapping.getJavaItem().ignoreDamage() || mapping.getJavaItem() == Items.SUSPICIOUS_STEW))) {
                         continue;
                     }
                 }
@@ -164,6 +187,28 @@ public class ItemMappings implements DefinitionRegistry<ItemDefinition> {
 
         GeyserImpl.getInstance().getLogger().debug("Missing mapping for bedrock item " + data);
         return ItemMapping.AIR;
+    }
+
+    public boolean isValidBlockItem(ItemData itemData) {
+        BlockDefinition blockDefinition = itemData.getBlockDefinition();
+        if (blockDefinition == null) {
+            return false;
+        }
+
+        if (blockDefinition.getRuntimeId() != 0) {
+            return true;
+        }
+
+        // Bedrock likes sending ""block definitions"" that aren't actually any
+        // Unfortunately, unlike Java, a block definition with runtime id 0 is not air,
+        // but a block. For example, in 1.21.110: cyan terracotta.
+        for (int other : zeroBlockDefinitionRuntimeId) {
+            if (itemData.getDefinition().getRuntimeId() == other) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     @Nullable

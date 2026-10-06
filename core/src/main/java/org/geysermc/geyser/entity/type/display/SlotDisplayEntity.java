@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,210 +25,169 @@
 
 package org.geysermc.geyser.entity.type.display;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import org.cloudburstmc.math.imaginary.Quaternionf;
-import org.cloudburstmc.math.matrix.Matrix3f;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.math.vector.Vector4f;
+import org.cloudburstmc.math.imaginary.Quaternionf;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerId;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
 import org.cloudburstmc.protocol.bedrock.packet.MobEquipmentPacket;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.impl.IdentifierImpl;
+import org.geysermc.geyser.entity.properties.type.FloatProperty;
+import org.geysermc.geyser.entity.properties.type.IntProperty;
+import org.geysermc.geyser.entity.properties.type.PropertyType;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.Entity;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.util.MathUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
 
-import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 public class SlotDisplayEntity extends Entity {
+    private static final Map<String, FloatProperty> TRANSFORM_PROPERTIES = createTransformProperties();
+    public static final IntProperty REVISION = integerProperty("revision", 1000000);
+    public static final IntProperty DELAY = new IntProperty(IdentifierImpl.parse("geyser:delay"), 1000000, -1000000, 0);
+    public static final FloatProperty DURATION = new FloatProperty(IdentifierImpl.parse("geyser:duration"), 50000, 0, 0f);
+    public static final IntProperty RENDER_PROFILE = integerProperty("render_profile", 1000000);
+    public static final IntProperty DISPLAY_CONTEXT = integerProperty("display_context", 8);
 
     protected ItemData hand = ItemData.AIR;
-    protected Vector3f translation = Vector3f.from(0, 0, 0);
-    protected Vector3f scale = Vector3f.from(1, 1, 1);
-    protected Vector3f rotation = Vector3f.from(0, 0, 0);
-    protected float qScale = 1F;
-    protected boolean validQScale = false;
-    protected boolean rotationUpdated = false;
+    private int revision;
+    private boolean transformDirty;
 
-    public SlotDisplayEntity(GeyserSession session, int entityId, long geyserId, UUID uuid,
-            EntityDefinition<?> definition,
-            Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public SlotDisplayEntity(EntitySpawnContext context) {
+        super(context);
     }
 
-    public void updateMainHand(GeyserSession session) {
-        if (!valid)
-            return;
+    private static IntProperty integerProperty(String name, int max) {
+        return new IntProperty(IdentifierImpl.parse("geyser:" + name), max, 0, 0);
+    }
 
-        MobEquipmentPacket handPacket = new MobEquipmentPacket();
-        handPacket.setRuntimeEntityId(geyserId);
-        handPacket.setItem(hand);
-        handPacket.setHotbarSlot(-1);
-        handPacket.setInventorySlot(0);
-        handPacket.setContainerId(ContainerId.INVENTORY);
+    private static Map<String, FloatProperty> createTransformProperties() {
+        Map<String, FloatProperty> properties = new LinkedHashMap<>();
+        for (String name : List.of("tx", "ty", "tz", "sx", "sy", "sz", "lx", "ly", "lz", "lw", "rx", "ry", "rz", "rw")) {
+            properties.put(name, new FloatProperty(IdentifierImpl.parse("geyser:" + name), 1000000, -1000000, name.startsWith("s") || name.endsWith("w") ? 1f : 0f));
+        }
+        return properties;
+    }
 
-        session.sendUpstreamPacket(handPacket);
+    public static List<PropertyType<?, ?>> properties() {
+        var properties = new java.util.ArrayList<PropertyType<?, ?>>(TRANSFORM_PROPERTIES.values());
+        properties.addAll(List.of(REVISION, DELAY, DURATION, RENDER_PROFILE, DISPLAY_CONTEXT));
+        return List.copyOf(properties);
     }
 
     @Override
-    public void initializeMetadata() {
+    protected void initializeMetadata() {
         super.initializeMetadata();
-
-        hand = ItemData.AIR;
-        translation = Vector3f.from(0, 0, 0);
-        scale = Vector3f.from(1, 1, 1);
-        rotation = Vector3f.from(0, 0, 0);
-        qScale = 1F;
-        validQScale = false;
-        rotationUpdated = false;
-
-        propertyManager.add("geyser:t_x", translation.getX() * 10);
-        propertyManager.add("geyser:t_y", translation.getY() * 10);
-        propertyManager.add("geyser:t_z", translation.getZ() * 10);
-
-        propertyManager.add("geyser:s_x", scale.getX());
-        propertyManager.add("geyser:s_y", scale.getY());
-        propertyManager.add("geyser:s_z", scale.getZ());
-
-        propertyManager.add("geyser:r_x", MathUtils.wrapDegrees(rotation.getX()));
-        propertyManager.add("geyser:r_y", MathUtils.wrapDegrees(-rotation.getY()));
-        propertyManager.add("geyser:r_z", MathUtils.wrapDegrees(-rotation.getZ()));
-
-        propertyManager.add("geyser:s_q", qScale);
-
-        updateBedrockEntityProperties();
+        setFlag(EntityFlag.HAS_GRAVITY, false);
+        setFlag(EntityFlag.HAS_COLLISION, false);
     }
 
     @Override
-    public void updateBedrockEntityProperties() {
+    public void spawnEntity() {
+        flushRevision();
+        super.spawnEntity();
+        updateMainHand();
+    }
+
+    protected void updateMainHand() {
         if (!valid) {
             return;
         }
+        MobEquipmentPacket packet = new MobEquipmentPacket();
+        packet.setRuntimeEntityId(geyserId);
+        packet.setItem(hand);
+        packet.setHotbarSlot(0);
+        packet.setInventorySlot(0);
+        packet.setContainerId(ContainerId.INVENTORY);
+        session.sendUpstreamPacket(packet);
+    }
 
-        if (propertyManager.hasProperties()) {
-            rotationUpdated = false;
-            propertyManager.add("geyser:s_id", (int) (Math.random() * 1000000F));
+    private void flushRevision() {
+        if (transformDirty) {
+            revision = revision == 1000000 ? 0 : revision + 1;
+            REVISION.apply(propertyManager, revision);
+            transformDirty = false;
         }
-
-        super.updateBedrockEntityProperties();
     }
 
     @Override
     public void updateBedrockMetadata() {
-        updateBedrockEntityProperties();
+        flushRevision();
         super.updateBedrockMetadata();
     }
 
-    public void setTranslation(EntityMetadata<Vector3f, ?> entityMetadata) {
-        this.translation = entityMetadata.getValue();
-
-        propertyManager.add("geyser:t_x", translation.getX() * 10);
-        propertyManager.add("geyser:t_y", translation.getY() * 10);
-        propertyManager.add("geyser:t_z", translation.getZ() * 10);
+    @Override
+    public void updateBedrockEntityProperties() {
+        flushRevision();
+        super.updateBedrockEntityProperties();
     }
 
-    public void setScale(EntityMetadata<Vector3f, ?> entityMetadata) {
-        this.scale = entityMetadata.getValue();
-
-        propertyManager.add("geyser:s_x", scale.getX());
-        propertyManager.add("geyser:s_y", scale.getY());
-        propertyManager.add("geyser:s_z", scale.getZ());
-    }
-
-    public void setLeftRotation(EntityMetadata<Vector4f, ?> entityMetadata) {
-        setRotation(entityMetadata.getValue());
-        rotationUpdated = true;
-    }
-
-    public void setRightRotation(EntityMetadata<Vector4f, ?> entityMetadata) {
-        setRotation(entityMetadata.getValue());
-        rotationUpdated = true;
-    }
-
-    protected void setRotation(Vector4f qRotation) {
-        Quaternionf q = Quaternionf.from(qRotation.getX(), qRotation.getY(), qRotation.getZ(), qRotation.getW());
-        float s = magnitude(q);
-        Vector3f r = toEulerZYX(q);
-
-        // this.scale = scale.mul(s);
-        if (rotationUpdated) {
-            this.rotation = rotation.add(r);
-        } else {
-            this.rotation = r;
+    private void setVector(String prefix, Vector3f vector) {
+        if (vector == null || !Float.isFinite(vector.getX()) || !Float.isFinite(vector.getY()) || !Float.isFinite(vector.getZ())) {
+            return;
         }
-
-        propertyManager.add("geyser:r_x", MathUtils.wrapDegrees(rotation.getX()));
-        propertyManager.add("geyser:r_y", MathUtils.wrapDegrees(-rotation.getY()));
-        propertyManager.add("geyser:r_z", MathUtils.wrapDegrees(-rotation.getZ()));
-
-        this.qScale = s;
-        propertyManager.add("geyser:s_q", qScale);
-    }
-
-    protected Vector3f getNonNormalScale(Quaternionf q) {
-        Quaternionf qx = q.mul(0, 1, 0, 0).mul(q.conjugate());
-        Quaternionf qy = q.mul(0, 0, 1, 0).mul(q.conjugate());
-        Quaternionf qz = q.mul(0, 0, 0, 1).mul(q.conjugate());
-
-        float x = (float) Math.sqrt(qx.getX() * qx.getX() + qx.getY() * qx.getY() + qx.getZ() * qx.getZ());
-        float y = (float) Math.sqrt(qy.getX() * qy.getX() + qy.getY() * qy.getY() + qy.getZ() * qy.getZ());
-        float z = (float) Math.sqrt(qz.getX() * qz.getX() + qz.getY() * qz.getY() + qz.getZ() * qz.getZ());
-
-        return Vector3f.from(x, y, z);
-    }
-
-    protected Vector3f toEulerZYX(Quaternionf q) {
-        Quaternionf qn = q.normalize();
-
-        Matrix3f m = Matrix3f.createRotation(qn);
-
-        float r20 = m.get(2, 0);
-        float r21 = m.get(2, 1);
-        float r22 = m.get(2, 2);
-        float r00 = m.get(0, 0);
-        float r01 = m.get(0, 1);
-        float r10 = m.get(1, 0);
-        float r11 = m.get(1, 1);
-
-        // float w = qn.getW();
-        // float x = qn.getX();
-        // float y = qn.getY();
-        // float z = qn.getZ();
-
-        // float yaw = (float) Math.atan2(2 * (y * w - x * z), 1 - 2 * (y * y + z * z));
-        // float pitch = (float) Math.asin(2 * (x * y + z * w));
-        // float roll = (float) Math.atan2(2 * (x * w - y * z), 1 - 2 * (x * x + z * z));
-
-        // float x = Math.abs(r20) < 0.9999999F ? (float) Math.atan2(r21, r22) : 0F;
-        // float y = - MathUtils.clamp((float) Math.asin(r20), -1F, 1F);
-        // float z = Math.abs(r20) < 0.9999999F ? (float) Math.atan2(r10, r00) : (float)
-        // Math.atan2(- r01, r11);
-
-        float x, y, z;
-
-        if (Math.abs(r20) < 0.9999999F) {
-            x = (float) Math.atan2(r21, r22);
-            y = (float) Math.asin(-r20);
-            z = (float) Math.atan2(r10, r00);
-        } else {
-            // Gimbal lock: pitch is approximately ±90°
-            x = 0;
-            y = (r20 > 0) ? -(float) Math.PI / 2 : (float) Math.PI / 2;
-            z = (float) Math.atan2(-r01, r11);
+        String[] axes = {"x", "y", "z"};
+        float[] values = {vector.getX(), vector.getY(), vector.getZ()};
+        for (int i = 0; i < axes.length; i++) {
+            TRANSFORM_PROPERTIES.get(prefix + axes[i]).apply(propertyManager, Math.clamp(values[i], -1000000f, 1000000f));
         }
-
-        return Vector3f.from(Math.toDegrees(x), Math.toDegrees(y), Math.toDegrees(z));
+        transformDirty = true;
     }
 
-    public float magnitude(Quaternionf q) {
-        return (float) q.getW() * q.getW() + q.getX() * q.getX() + q.getY() * q.getY() + q.getZ() * q.getZ();
+    public void setTranslation(EntityMetadata<Vector3f, ?> metadata) {
+        Vector3f value = metadata.getValue();
+        if (value != null) {
+            // Model X points in the opposite direction to Java; animation Y points down.
+            setVector("t", Vector3f.from(-value.getX(), -value.getY(), value.getZ()));
+        }
     }
 
-    protected void hackRotation(float x, float y, float z) {
-        propertyManager.add("geyser:rotation_x", x);
-        propertyManager.add("geyser:rotation_y", y);
-        propertyManager.add("geyser:rotation_z", z);
-        // updateBedrockEntityProperties();
+    public void setScale(EntityMetadata<Vector3f, ?> metadata) {
+        setVector("s", metadata.getValue());
     }
 
+    private void setQuaternion(String prefix, Quaternionf quaternion) {
+        Vector4f value = DisplayRotation.toBedrockQuaternion(quaternion);
+        String[] axes = {"x", "y", "z", "w"};
+        float[] values = {value.getX(), value.getY(), value.getZ(), value.getW()};
+        for (int i = 0; i < axes.length; i++) {
+            TRANSFORM_PROPERTIES.get(prefix + axes[i]).apply(propertyManager, values[i]);
+        }
+        transformDirty = true;
+    }
+
+    public void setLeftRotation(EntityMetadata<Quaternionf, ?> metadata) {
+        if (metadata.getValue() != null) {
+            setQuaternion("l", metadata.getValue());
+        }
+    }
+
+    public void setRightRotation(EntityMetadata<Quaternionf, ?> metadata) {
+        if (metadata.getValue() != null) {
+            setQuaternion("r", metadata.getValue());
+        }
+    }
+
+    public void setInterpolationDelay(IntEntityMetadata metadata) {
+        DELAY.apply(propertyManager, Math.clamp(metadata.getPrimitiveValue(), -1000000, 1000000));
+        transformDirty = true;
+    }
+
+    public void setInterpolationDuration(IntEntityMetadata metadata) {
+        DURATION.apply(propertyManager, Math.clamp(metadata.getPrimitiveValue() / 20f, 0, 50000));
+        transformDirty = true;
+    }
+
+    /** Selects a correction generated from a custom pack's renderer factors; zero enables automatic selection. */
+    public void setRenderProfile(int profile) {
+        if (profile < 0 || profile > 1000000) {
+            throw new IllegalArgumentException("Display profile must be between 0 and 1000000");
+        }
+        RENDER_PROFILE.apply(propertyManager, profile);
+        updateBedrockEntityProperties();
+    }
 }

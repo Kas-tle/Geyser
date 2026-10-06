@@ -25,43 +25,63 @@
 
 package org.geysermc.geyser.entity.type.living.monster.raid;
 
-import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.registry.type.ItemMapping;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.inventory.GeyserItemStack;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
 
 public class PillagerEntity extends AbstractIllagerEntity {
 
-    public PillagerEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public PillagerEntity(EntitySpawnContext context) {
+        super(context);
+    }
+
+    public void setChargingCrossbow(BooleanEntityMetadata entityMetadata) {
+        boolean charging = entityMetadata.getPrimitiveValue();
+        setFlag(EntityFlag.CHARGING, charging);
+        metadata.put(EntityDataTypes.CHARGE_AMOUNT, charging ? (byte) 64 : (byte) 0); // TODO: gradually increase
     }
 
     @Override
-    public void updateMainHand(GeyserSession session) { //TODO
-        checkForCrossbow();
+    public void updateMainHand() {
+        updateCrossbow();
 
-        super.updateMainHand(session);
+        super.updateMainHand();
     }
 
     @Override
-    public void updateOffHand(GeyserSession session) {
-        checkForCrossbow();
+    public void updateOffHand() {
+        updateCrossbow();
 
-        super.updateOffHand(session);
+        super.updateOffHand();
     }
 
     /**
      * Check for a crossbow in either the mainhand or offhand. If one exists, indicate that the pillager should be posing
      */
-    protected void checkForCrossbow() {
-        ItemMapping crossbow = session.getItemMappings().getStoredItems().crossbow();
-        boolean hasCrossbow = this.hand.getDefinition() == crossbow.getBedrockDefinition()
-                || this.offHand.getDefinition() == crossbow.getBedrockDefinition();
-        setFlag(EntityFlag.USING_ITEM, hasCrossbow);
-        setFlag(EntityFlag.CHARGED, hasCrossbow);
+    protected void updateCrossbow() {
+        GeyserItemStack activeCrossbow = null;
+        if (getMainHandItem().is(Items.CROSSBOW)) {
+            activeCrossbow = getMainHandItem();
+        } else if (getOffHandItem().is(Items.CROSSBOW)) {
+            activeCrossbow = getOffHandItem();
+        }
+
+        if (activeCrossbow != null) {
+            if (activeCrossbow.getComponent(DataComponentTypes.CHARGED_PROJECTILES) != null) {
+                metadata.put(EntityDataTypes.CHARGE_AMOUNT, Byte.MAX_VALUE);
+                setFlag(EntityFlag.CHARGING, false);
+                setFlag(EntityFlag.CHARGED, true);
+                setFlag(EntityFlag.USING_ITEM, true);
+            } else if (getFlag(EntityFlag.CHARGED)) {
+                metadata.put(EntityDataTypes.CHARGE_AMOUNT, (byte) 0);
+                setFlag(EntityFlag.CHARGED, false);
+                setFlag(EntityFlag.USING_ITEM, false);
+            }
+        }
 
         updateBedrockMetadata();
     }

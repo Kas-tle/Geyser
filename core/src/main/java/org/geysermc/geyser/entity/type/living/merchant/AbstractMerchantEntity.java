@@ -25,37 +25,33 @@
 
 package org.geysermc.geyser.entity.type.living.merchant;
 
-import com.github.steveice10.mc.protocol.data.game.entity.player.Hand;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.entity.EntityDefinitions;
+import org.geysermc.geyser.entity.VanillaEntities;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.AgeableEntity;
 import org.geysermc.geyser.inventory.GeyserItemStack;
 import org.geysermc.geyser.item.Items;
-import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.util.InteractionResult;
 import org.geysermc.geyser.util.InteractiveTag;
-
-import javax.annotation.Nonnull;
-import java.util.UUID;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class AbstractMerchantEntity extends AgeableEntity {
 
-    public AbstractMerchantEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public AbstractMerchantEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
-    protected boolean canBeLeashed() {
+    public boolean canBeLeashed() {
         return false;
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractiveTag testMobInteraction(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
-        if (itemInHand.asItem() != Items.VILLAGER_SPAWN_EGG
-                && (definition != EntityDefinitions.VILLAGER || !getFlag(EntityFlag.SLEEPING) && ((VillagerEntity) this).isCanTradeWith())) {
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (!itemInHand.is(Items.VILLAGER_SPAWN_EGG)
+                && (javaDefinition != VanillaEntities.VILLAGER || !getFlag(EntityFlag.SLEEPING) && ((VillagerEntity) this).isCanTradeWith())) {
             // An additional check we know cannot work
             if (!isBaby()) {
                 return InteractiveTag.TRADE;
@@ -64,12 +60,12 @@ public class AbstractMerchantEntity extends AgeableEntity {
         return super.testMobInteraction(hand, itemInHand);
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractionResult mobInteract(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
-        if (itemInHand.asItem() != Items.VILLAGER_SPAWN_EGG
-                && (definition != EntityDefinitions.VILLAGER || !getFlag(EntityFlag.SLEEPING))
-                && (definition != EntityDefinitions.WANDERING_TRADER || !getFlag(EntityFlag.BABY))) {
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (!itemInHand.is(Items.VILLAGER_SPAWN_EGG)
+                && (javaDefinition != VanillaEntities.VILLAGER || !getFlag(EntityFlag.SLEEPING))
+                && (javaDefinition != VanillaEntities.WANDERING_TRADER || !getFlag(EntityFlag.BABY))) {
             // Trading time
             return InteractionResult.SUCCESS;
         } else {

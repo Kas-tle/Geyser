@@ -25,28 +25,24 @@
 
 package org.geysermc.geyser.entity.type.living.monster;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.VillagerData;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.player.Hand;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.merchant.VillagerEntity;
 import org.geysermc.geyser.inventory.GeyserItemStack;
 import org.geysermc.geyser.item.Items;
-import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.util.InteractionResult;
 import org.geysermc.geyser.util.InteractiveTag;
-
-import javax.annotation.Nonnull;
-import java.util.UUID;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.VillagerData;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class ZombieVillagerEntity extends ZombieEntity {
 
-    public ZombieVillagerEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public ZombieVillagerEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setTransforming(BooleanEntityMetadata entityMetadata) {
@@ -56,10 +52,10 @@ public class ZombieVillagerEntity extends ZombieEntity {
 
     public void setZombieVillagerData(EntityMetadata<VillagerData, ?> entityMetadata) {
         VillagerData villagerData = entityMetadata.getValue();
-        dirtyMetadata.put(EntityDataTypes.VARIANT, VillagerEntity.getBedrockProfession(villagerData.getProfession())); // Actually works properly with the OptionalPack
-        dirtyMetadata.put(EntityDataTypes.MARK_VARIANT, VillagerEntity.getBedrockRegion(villagerData.getType()));
+        metadata.put(EntityDataTypes.VARIANT, VillagerEntity.getBedrockProfession(villagerData.getProfession())); // Actually works properly with the OptionalPack
+        metadata.put(EntityDataTypes.MARK_VARIANT, VillagerEntity.getBedrockRegion(villagerData.getType()));
         // Used with the OptionalPack
-        dirtyMetadata.put(EntityDataTypes.TRADE_TIER, villagerData.getLevel() - 1);
+        metadata.put(EntityDataTypes.TRADE_TIER, villagerData.getLevel() - 1);
     }
 
     @Override
@@ -67,20 +63,20 @@ public class ZombieVillagerEntity extends ZombieEntity {
         return getFlag(EntityFlag.IS_TRANSFORMING) || super.isShaking();
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractiveTag testMobInteraction(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
-        if (itemInHand.asItem() == Items.GOLDEN_APPLE) {
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (itemInHand.is(Items.GOLDEN_APPLE)) {
             return InteractiveTag.CURE;
         } else {
             return super.testMobInteraction(hand, itemInHand);
         }
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractionResult mobInteract(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
-        if (itemInHand.asItem() == Items.GOLDEN_APPLE) {
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
+        if (itemInHand.is(Items.GOLDEN_APPLE)) {
             // The client doesn't know if the entity has weakness as that's not usually sent over the network
             return InteractionResult.CONSUME;
         } else {

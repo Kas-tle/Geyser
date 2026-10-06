@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 GeyserMC. http://geysermc.org
+ * Copyright (c) 2025 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,31 +25,41 @@
 
 package org.geysermc.geyser.entity.properties.type;
 
-import org.cloudburstmc.nbt.NbtMap;
-import org.cloudburstmc.nbt.NbtMapBuilder;
-import org.cloudburstmc.nbt.NbtType;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.geysermc.geyser.api.entity.property.type.GeyserEnumEntityProperty;
+import org.geysermc.geyser.api.util.Identifier;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
-public class EnumProperty implements PropertyType {
-    private final String name;
-    private final List<String> values;
+public record EnumProperty<E extends Enum<E>>(
+    Identifier identifier,
+    Class<E> enumClass,
+    @NonNull E defaultValue
+) implements AbstractEnumProperty<E>, GeyserEnumEntityProperty<E> {
 
-    public EnumProperty(String name, List<String> values) {
-        this.name = name;
-        this.values = values;
+    public EnumProperty {
+        validateAllValues(identifier, Arrays.stream(enumClass.getEnumConstants()).map(value -> value.name().toLowerCase(Locale.ROOT)).toList());
+    }
+
+    public List<E> values() {
+        return List.of(enumClass.getEnumConstants());
+    }
+
+    public List<String> allBedrockValues() {
+        return values().stream().map(
+            value -> value.name().toLowerCase(Locale.ROOT)
+        ).toList();
     }
 
     @Override
-    public NbtMap nbtMap() {
-        return NbtMap.builder()
-            .putString("name", name)
-            .putList("values", NbtType.STRING, values)
-            .putInt("type", 3)
-            .build();
+    public int indexOf(E value) {
+        return value.ordinal();
     }
 
-    public int getIndex(String value) {
-        return values.indexOf(value);
+    @Override
+    public int defaultIndex() {
+        return defaultValue.ordinal();
     }
 }

@@ -25,19 +25,27 @@
 
 package org.geysermc.geyser.entity.type.living.monster;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
 
 public class BasePiglinEntity extends MonsterEntity {
     private boolean isImmuneToZombification;
 
-    public BasePiglinEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public BasePiglinEntity(EntitySpawnContext context) {
+        super(context);
+        // Both TARGET_EID and BLOCK are needed for melee attack animation
+        metadata.put(EntityDataTypes.BLOCK, session.getBlockMappings().getDefinition(1));
+        setFlag(EntityFlag.SHAKING, isShaking());
+    }
+
+    @Override
+    public void setMobFlags(ByteEntityMetadata entityMetadata) {
+        super.setMobFlags(entityMetadata);
+        byte xd = entityMetadata.getPrimitiveValue();
+        metadata.put(EntityDataTypes.TARGET_EID, (xd & 4) == 4 ? session.getPlayerEntity().geyserId() : 0);
     }
 
     public void setImmuneToZombification(BooleanEntityMetadata entityMetadata) {
@@ -49,5 +57,10 @@ public class BasePiglinEntity extends MonsterEntity {
     @Override
     protected boolean isShaking() {
         return (!isImmuneToZombification && !session.getDimensionType().piglinSafe()) || super.isShaking();
+    }
+
+    @Override
+    public boolean useArmSwingAttack() {
+        return true;
     }
 }

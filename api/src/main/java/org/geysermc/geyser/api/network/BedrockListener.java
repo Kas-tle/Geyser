@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,8 +25,6 @@
 
 package org.geysermc.geyser.api.network;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-
 /**
  * The listener that handles connections from Minecraft:
  * Bedrock Edition.
@@ -39,7 +37,6 @@ public interface BedrockListener {
      *
      * @return the listening address
      */
-    @NonNull
     String address();
 
     /**
@@ -49,6 +46,14 @@ public interface BedrockListener {
      * @return the listening port
      */
     int port();
+
+    /**
+     * Gets the broadcast port that's sent to Bedrock clients with the motd.
+     * This is the port that Bedrock clients will connect with. It usually does not differ from the listening port.
+     *
+     * @return the broadcast port
+     */
+    int broadcastPort();
 
     /**
      * Gets the primary MOTD shown to Bedrock players if a ping passthrough setting is not enabled.

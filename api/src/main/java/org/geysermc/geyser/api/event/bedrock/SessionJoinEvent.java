@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,15 +25,15 @@
 
 package org.geysermc.geyser.api.event.bedrock;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.geysermc.geyser.api.connection.GeyserConnection;
 import org.geysermc.geyser.api.event.connection.ConnectionEvent;
 
 /**
  * Called when Geyser session connected to a Java remote server and is in a play-ready state.
+ * @since 2.1.1
  */
 public final class SessionJoinEvent extends ConnectionEvent {
-    public SessionJoinEvent(@NonNull GeyserConnection connection) {
+    public SessionJoinEvent(GeyserConnection connection) {
         super(connection);
     }
 }

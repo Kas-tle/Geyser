@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2024 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,59 +32,71 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.geysermc.geyser.api.item.custom.CustomItemOptions;
 import org.geysermc.geyser.api.item.custom.CustomRenderOffsets;
 import org.geysermc.geyser.api.item.custom.NonVanillaCustomItemData;
-import org.jetbrains.annotations.NotNull;
+import org.geysermc.geyser.api.item.custom.v2.CustomItemBedrockOptions;
+import org.geysermc.geyser.api.item.custom.v2.NonVanillaCustomItemDefinition;
+import org.geysermc.geyser.api.item.custom.v2.component.geyser.GeyserBlockPlacer;
+import org.geysermc.geyser.api.item.custom.v2.component.geyser.GeyserChargeable;
+import org.geysermc.geyser.api.item.custom.v2.component.geyser.GeyserItemDataComponents;
+import org.geysermc.geyser.api.item.custom.v2.component.java.JavaConsumable;
+import org.geysermc.geyser.api.item.custom.v2.component.java.JavaEquippable;
+import org.geysermc.geyser.api.item.custom.v2.component.java.JavaFoodProperties;
+import org.geysermc.geyser.api.item.custom.v2.component.java.JavaItemDataComponents;
+import org.geysermc.geyser.api.util.CreativeCategory;
+import org.geysermc.geyser.api.util.Identifier;
 
-import java.util.OptionalInt;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @EqualsAndHashCode(callSuper = true)
 @ToString
+@Deprecated
 public final class GeyserNonVanillaCustomItemData extends GeyserCustomItemData implements NonVanillaCustomItemData {
     private final String identifier;
     private final int javaId;
     private final int stackSize;
     private final int maxDamage;
+    private final int attackDamage;
     private final String toolType;
     private final String toolTier;
     private final String armorType;
     private final int protectionValue;
     private final String translationString;
     private final Set<String> repairMaterials;
-    private final OptionalInt creativeCategory;
-    private final String creativeGroup;
     private final boolean isHat;
     private final boolean isFoil;
     private final boolean isTool;
     private final boolean isEdible;
     private final boolean canAlwaysEat;
     private final boolean isChargeable;
+    private final String block;
 
-    public GeyserNonVanillaCustomItemData(NonVanillaCustomItemDataBuilder builder) {
+    public GeyserNonVanillaCustomItemData(Builder builder) {
         super(builder.name, builder.customItemOptions, builder.displayName, builder.icon, builder.allowOffhand,
-                builder.displayHandheld, builder.textureSize, builder.renderOffsets);
+                builder.displayHandheld, builder.creativeCategory, builder.creativeGroup,
+                builder.textureSize, builder.renderOffsets, builder.tags);
 
         this.identifier = builder.identifier;
         this.javaId = builder.javaId;
         this.stackSize = builder.stackSize;
         this.maxDamage = builder.maxDamage;
+        this.attackDamage = builder.attackDamage;
         this.toolType = builder.toolType;
         this.toolTier = builder.toolTier;
         this.armorType = builder.armorType;
         this.protectionValue = builder.protectionValue;
         this.translationString = builder.translationString;
         this.repairMaterials = builder.repairMaterials;
-        this.creativeCategory = builder.creativeCategory;
-        this.creativeGroup = builder.creativeGroup;
         this.isHat = builder.hat;
         this.isFoil = builder.foil;
         this.isTool = builder.tool;
         this.isEdible = builder.edible;
         this.canAlwaysEat = builder.canAlwaysEat;
         this.isChargeable = builder.chargeable;
+        this.block = builder.block;
     }
 
     @Override
-    public @NotNull String identifier() {
+    public @NonNull String identifier() {
         return identifier;
     }
 
@@ -104,10 +116,16 @@ public final class GeyserNonVanillaCustomItemData extends GeyserCustomItemData i
     }
 
     @Override
+    public int attackDamage() {
+        return attackDamage;
+    }
+
+    @Override
     public String toolType() {
         return toolType;
     }
 
+    @SuppressWarnings("removal")
     @Override
     public String toolTier() {
         return toolTier;
@@ -128,19 +146,10 @@ public final class GeyserNonVanillaCustomItemData extends GeyserCustomItemData i
         return translationString;
     }
 
+    @SuppressWarnings("removal")
     @Override
     public Set<String> repairMaterials() {
         return repairMaterials;
-    }
-
-    @Override
-    public @NotNull OptionalInt creativeCategory() {
-        return creativeCategory;
-    }
-
-    @Override
-    public String creativeGroup() {
-        return creativeGroup;
     }
 
     @Override
@@ -168,13 +177,70 @@ public final class GeyserNonVanillaCustomItemData extends GeyserCustomItemData i
         return isChargeable;
     }
 
-    public static class NonVanillaCustomItemDataBuilder extends GeyserCustomItemData.CustomItemDataBuilder implements NonVanillaCustomItemData.Builder {
+    @Override
+    public String block() {
+        return block;
+    }
+
+    public NonVanillaCustomItemDefinition.Builder toDefinition() {
+        NonVanillaCustomItemDefinition.Builder definition = NonVanillaCustomItemDefinition.builder(Identifier.of(identifier()), javaId())
+            .displayName(displayName())
+            .bedrockOptions(CustomItemBedrockOptions.builder()
+                .icon(icon())
+                .allowOffhand(allowOffhand())
+                .displayHandheld(displayHandheld())
+                .creativeCategory(creativeCategory().isEmpty() ? CreativeCategory.NONE : CreativeCategory.values()[creativeCategory().getAsInt()])
+                .creativeGroup(creativeGroup())
+                .tags(tags().stream().map(Identifier::of).collect(Collectors.toSet()))
+                .protectionValue(protectionValue())
+            )
+            .component(JavaItemDataComponents.MAX_STACK_SIZE, stackSize())
+            .component(JavaItemDataComponents.MAX_DAMAGE, maxDamage())
+            .component(GeyserItemDataComponents.ATTACK_DAMAGE, attackDamage())
+            .translationString(translationString());
+
+        if (isHat()) {
+            definition.component(JavaItemDataComponents.EQUIPPABLE, JavaEquippable.builder().slot(JavaEquippable.EquipmentSlot.HEAD).build());
+        } else if (armorType() != null) {
+            switch (armorType()) {
+                case "helmet" -> definition.component(JavaItemDataComponents.EQUIPPABLE, JavaEquippable.builder().slot(JavaEquippable.EquipmentSlot.HEAD));
+                case "chestplate" -> definition.component(JavaItemDataComponents.EQUIPPABLE, JavaEquippable.builder().slot(JavaEquippable.EquipmentSlot.CHEST));
+                case "leggings" -> definition.component(JavaItemDataComponents.EQUIPPABLE, JavaEquippable.builder().slot(JavaEquippable.EquipmentSlot.LEGS));
+                case "boots" -> definition.component(JavaItemDataComponents.EQUIPPABLE, JavaEquippable.of(JavaEquippable.EquipmentSlot.FEET));
+            }
+        }
+
+        if (isEdible()) {
+            definition.component(JavaItemDataComponents.CONSUMABLE, JavaConsumable.builder().consumeSeconds(1.6F).animation(JavaConsumable.Animation.EAT)); // Default values
+            if (canAlwaysEat()) {
+                definition.component(JavaItemDataComponents.FOOD, JavaFoodProperties.builder().canAlwaysEat(true));
+            }
+        }
+
+        if (isChargeable() && toolType() != null) {
+            if (toolType().equals("bow")) {
+                definition.component(GeyserItemDataComponents.CHARGEABLE, GeyserChargeable.builder().maxDrawDuration(1.0F).chargeOnDraw(true).ammunition(Identifier.of("arrow")));
+            } else {
+                definition.component(GeyserItemDataComponents.CHARGEABLE, GeyserChargeable.builder().ammunition(Identifier.of("arrow")));
+            }
+        }
+
+        if (block() != null) {
+            definition.component(GeyserItemDataComponents.BLOCK_PLACER, GeyserBlockPlacer.builder().block(Identifier.of(block())));
+        }
+
+        return definition;
+    }
+
+    public static class Builder extends GeyserCustomItemData.Builder implements NonVanillaCustomItemData.Builder {
         private String identifier = null;
         private int javaId = -1;
 
         private int stackSize = 64;
 
         private int maxDamage = 0;
+
+        private int attackDamage = 0;
 
         private String toolType = null;
         private String toolTier = null;
@@ -186,156 +252,169 @@ public final class GeyserNonVanillaCustomItemData extends GeyserCustomItemData i
 
         private Set<String> repairMaterials;
 
-        private OptionalInt creativeCategory = OptionalInt.empty();
-        private String creativeGroup = null;
-
         private boolean hat = false;
         private boolean foil = false;
         private boolean tool = false;
         private boolean edible = false;
         private boolean canAlwaysEat = false;
         private boolean chargeable = false;
+        private String block = null;
 
         @Override
-        public NonVanillaCustomItemData.Builder name(@NonNull String name) {
-            return (NonVanillaCustomItemData.Builder) super.name(name);
+        public Builder name(@NonNull String name) {
+            return (Builder) super.name(name);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder customItemOptions(@NonNull CustomItemOptions customItemOptions) {
+        public Builder customItemOptions(@NonNull CustomItemOptions customItemOptions) {
             //Do nothing, as that value won't be read
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder allowOffhand(boolean allowOffhand) {
-            return (NonVanillaCustomItemData.Builder) super.allowOffhand(allowOffhand);
+        public Builder allowOffhand(boolean allowOffhand) {
+            return (Builder) super.allowOffhand(allowOffhand);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder displayHandheld(boolean displayHandheld) {
-            return (NonVanillaCustomItemData.Builder) super.displayHandheld(displayHandheld);
+        public Builder displayHandheld(boolean displayHandheld) {
+            return (Builder) super.displayHandheld(displayHandheld);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder displayName(@NonNull String displayName) {
-            return (NonVanillaCustomItemData.Builder) super.displayName(displayName);
+        public Builder displayName(@NonNull String displayName) {
+            return (Builder) super.displayName(displayName);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder icon(@NonNull String icon) {
-            return (NonVanillaCustomItemData.Builder) super.icon(icon);
+        public Builder icon(@NonNull String icon) {
+            return (Builder) super.icon(icon);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder textureSize(int textureSize) {
-            return (NonVanillaCustomItemData.Builder) super.textureSize(textureSize);
+        public Builder textureSize(int textureSize) {
+            return (Builder) super.textureSize(textureSize);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder renderOffsets(CustomRenderOffsets renderOffsets) {
-            return (NonVanillaCustomItemData.Builder) super.renderOffsets(renderOffsets);
+        public Builder renderOffsets(CustomRenderOffsets renderOffsets) {
+            return (Builder) super.renderOffsets(renderOffsets);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder identifier(@NonNull String identifier) {
+        public Builder tags(@Nullable Set<String> tags) {
+            return (Builder) super.tags(tags);
+        }
+
+        @Override
+        public Builder identifier(@NonNull String identifier) {
             this.identifier = identifier;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder javaId(int javaId) {
+        public Builder javaId(int javaId) {
             this.javaId = javaId;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder stackSize(int stackSize) {
+        public Builder stackSize(int stackSize) {
             this.stackSize = stackSize;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder maxDamage(int maxDamage) {
+        public Builder maxDamage(int maxDamage) {
             this.maxDamage = maxDamage;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder toolType(@Nullable String toolType) {
+        public NonVanillaCustomItemData.Builder attackDamage(int attackDamage) {
+            this.attackDamage = attackDamage;
+            return this;
+        }
+
+        @Override
+        public Builder toolType(@Nullable String toolType) {
             this.toolType = toolType;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder toolTier(@Nullable String toolTier) {
+        public Builder toolTier(@Nullable String toolTier) {
             this.toolTier = toolTier;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder armorType(@Nullable String armorType) {
+        public Builder armorType(@Nullable String armorType) {
             this.armorType = armorType;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder protectionValue(int protectionValue) {
+        public Builder protectionValue(int protectionValue) {
             this.protectionValue = protectionValue;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder translationString(@Nullable String translationString) {
+        public Builder translationString(@Nullable String translationString) {
             this.translationString = translationString;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder repairMaterials(@Nullable Set<String> repairMaterials) {
+        public Builder repairMaterials(@Nullable Set<String> repairMaterials) {
             this.repairMaterials = repairMaterials;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder creativeCategory(int creativeCategory) {
-            this.creativeCategory = OptionalInt.of(creativeCategory);
-            return this;
+        public Builder creativeCategory(int creativeCategory) {
+            return (Builder) super.creativeCategory(creativeCategory);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder creativeGroup(@Nullable String creativeGroup) {
-            this.creativeGroup = creativeGroup;
-            return this;
+        public Builder creativeGroup(@Nullable String creativeGroup) {
+            return (Builder) super.creativeGroup(creativeGroup);
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder hat(boolean isHat) {
+        public Builder hat(boolean isHat) {
             this.hat = isHat;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder foil(boolean isFoil) {
+        public Builder foil(boolean isFoil) {
             this.foil = isFoil;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder edible(boolean isEdible) {
+        public Builder edible(boolean isEdible) {
             this.edible = isEdible;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder canAlwaysEat(boolean canAlwaysEat) {
+        public Builder canAlwaysEat(boolean canAlwaysEat) {
             this.canAlwaysEat = canAlwaysEat;
             return this;
         }
 
         @Override
-        public NonVanillaCustomItemData.Builder chargeable(boolean isChargeable) {
+        public Builder chargeable(boolean isChargeable) {
             this.chargeable = isChargeable;
+            return this;
+        }
+
+        @Override
+        public Builder block(String block) {
+            this.block = block;
             return this;
         }
 

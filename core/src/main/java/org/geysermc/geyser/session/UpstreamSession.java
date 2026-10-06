@@ -32,7 +32,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.cloudburstmc.protocol.bedrock.BedrockServerSession;
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodecHelper;
 import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket;
-import org.geysermc.geyser.network.GeyserBedrockPeer;
+import org.geysermc.geyser.network.bedrock.GeyserBedrockPeer;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayDeque;
@@ -58,7 +58,7 @@ public class UpstreamSession {
     }
 
     public void disconnect(String reason) {
-        session.disconnect(reason);
+        this.session.disconnect(reason);
     }
 
     /**
@@ -89,6 +89,10 @@ public class UpstreamSession {
         return (InetSocketAddress) ((GeyserBedrockPeer) session.getPeer()).getRealAddress();
     }
 
+    public void setInetAddress(InetSocketAddress address) {
+        ((GeyserBedrockPeer) session.getPeer()).setProxiedAddress(address);
+    }
+
     /**
      * Gets the session's protocol version.
      *
@@ -105,5 +109,9 @@ public class UpstreamSession {
      */
     public BedrockCodecHelper getCodecHelper() {
         return this.session.getPeer().getCodecHelper();
+    }
+
+    public void forciblyClose() {
+        this.session.getPeer().getChannel().close();
     }
 }

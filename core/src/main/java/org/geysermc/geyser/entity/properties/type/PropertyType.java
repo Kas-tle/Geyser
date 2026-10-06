@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2024 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,8 +25,25 @@
 
 package org.geysermc.geyser.entity.properties.type;
 
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.cloudburstmc.nbt.NbtMap;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityProperty;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.api.entity.property.GeyserEntityProperty;
+import org.geysermc.geyser.entity.properties.GeyserEntityPropertyManager;
 
-public interface PropertyType {
+public interface PropertyType<Type, NetworkRepresentation extends EntityProperty> extends GeyserEntityProperty<Type> {
     NbtMap nbtMap();
+
+    NetworkRepresentation defaultValue(int index);
+
+    NetworkRepresentation createValue(int index, @Nullable Type value);
+
+    default void apply(@Nullable GeyserEntityPropertyManager manager, Type value) {
+        if (manager == null) {
+            GeyserImpl.getInstance().getLogger().debug("Not updating property %s with value %s due to no property manager!", identifier(), value);
+            return;
+        }
+        manager.addProperty(this, value);
+    }
 }

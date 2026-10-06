@@ -25,17 +25,14 @@
 
 package org.geysermc.geyser.entity.type.living.animal;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
 import com.google.common.collect.ImmutableList;
-import org.cloudburstmc.math.vector.Vector3f;
-import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import it.unimi.dsi.fastutil.ints.IntList;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.living.AbstractFishEntity;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.IntEntityMetadata;
 
 import java.util.List;
-import java.util.UUID;
 
 public class TropicalFishEntity extends AbstractFishEntity {
 
@@ -48,17 +45,21 @@ public class TropicalFishEntity extends AbstractFishEntity {
     private static final List<String> VARIANT_NAMES = ImmutableList.of("kob", "sunstreak", "snooper", "dasher", "brinely", "spotty", "flopper", "stripey", "glitter", "blockfish", "betty", "clayfish");
     private static final List<String> COLOR_NAMES = ImmutableList.of("white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black");
 
-    public TropicalFishEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public TropicalFishEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setFishVariant(IntEntityMetadata entityMetadata) {
         int varNumber = entityMetadata.getPrimitiveValue();
 
-        dirtyMetadata.put(EntityDataTypes.VARIANT, getShape(varNumber)); // Shape 0-1
-        dirtyMetadata.put(EntityDataTypes.MARK_VARIANT, getPattern(varNumber)); // Pattern 0-5
-        dirtyMetadata.put(EntityDataTypes.COLOR, getBaseColor(varNumber)); // Base color 0-15
-        dirtyMetadata.put(EntityDataTypes.COLOR_2, getPatternColor(varNumber)); // Pattern color 0-15
+        metadata.put(EntityDataTypes.VARIANT, getShape(varNumber)); // Shape 0-1
+        metadata.put(EntityDataTypes.MARK_VARIANT, getPattern(varNumber)); // Pattern 0-5
+        metadata.put(EntityDataTypes.COLOR, getBaseColor(varNumber)); // Base color 0-15
+        metadata.put(EntityDataTypes.COLOR_2, getPatternColor(varNumber)); // Pattern color 0-15
+    }
+
+    public static int getPackedVariant(int pattern, int baseColor, int patternColor) {
+        return pattern & 65535 | (baseColor & 0xFF) << 16 | (patternColor & 0xFF) << 24;
     }
 
     public static int getShape(int variant) {

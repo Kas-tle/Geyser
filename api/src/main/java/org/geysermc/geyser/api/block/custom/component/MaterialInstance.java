@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,8 +25,8 @@
 
 package org.geysermc.geyser.api.block.custom.component;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.geysermc.geyser.api.GeyserApi;
+import org.jspecify.annotations.Nullable;
 
 /**
  * This class is used to store data for a material instance.
@@ -47,6 +47,13 @@ public interface MaterialInstance {
     @Nullable String renderMethod();
 
     /**
+     * Gets the tint method of the block
+     *
+     * @return The tint method of the block.
+     */
+    @Nullable String tintMethod();
+
+    /**
      * Gets if the block should be dimmed on certain faces
      * 
      * @return If the block should be dimmed on certain faces.
@@ -55,10 +62,29 @@ public interface MaterialInstance {
 
     /**
      * Gets if the block should have ambient occlusion
-     * 
+     *
      * @return If the block should have ambient occlusion.
+     * @deprecated Use {@link #ambientOcclusionExponent()} instead
      */
+    @Deprecated(since = "2.11.3")
     boolean ambientOcclusion();
+
+    /**
+     * Gets the exponent applied to the ambient occlusion value after lighting.
+     * Bedrock accepts values between {@code 0.0} and {@code 10.0}, where {@code 0.0}
+     * disables ambient occlusion and {@code 1.0} is the default strength.
+     *
+     * @return the ambient occlusion exponent
+     * @since 2.11.3
+     */
+    float ambientOcclusionExponent();
+
+    /**
+     * Gets if the block is isotropic
+     *
+     * @return If the block is isotropic.
+     */
+    boolean isotropic();
 
     /**
      * Creates a builder for MaterialInstance.
@@ -74,9 +100,25 @@ public interface MaterialInstance {
 
         Builder renderMethod(@Nullable String renderMethod);
 
+        Builder tintMethod(@Nullable String tintMethod);
+
         Builder faceDimming(boolean faceDimming);
 
+        /**
+         * @deprecated Use {@link #ambientOcclusionExponent(float)} instead
+         */
+        @Deprecated(since = "2.11.3")
         Builder ambientOcclusion(boolean ambientOcclusion);
+
+        /**
+         * Sets the exponent applied to the ambient occlusion value after lighting,
+         * between {@code 0.0} and {@code 10.0} inclusive.
+         *
+         * @since 2.11.3
+         */
+        Builder ambientOcclusionExponent(float ambientOcclusionExponent);
+
+        Builder isotropic(boolean isotropic);
 
         MaterialInstance build();
     }

@@ -25,16 +25,18 @@
 
 package org.geysermc.geyser.translator.protocol.java.level;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
-import com.github.steveice10.mc.protocol.data.game.level.particle.BlockParticleData;
-import com.github.steveice10.mc.protocol.data.game.level.particle.DustParticleData;
-import com.github.steveice10.mc.protocol.data.game.level.particle.FallingDustParticleData;
-import com.github.steveice10.mc.protocol.data.game.level.particle.ItemParticleData;
-import com.github.steveice10.mc.protocol.data.game.level.particle.Particle;
-import com.github.steveice10.mc.protocol.data.game.level.particle.VibrationParticleData;
-import com.github.steveice10.mc.protocol.data.game.level.particle.positionsource.BlockPositionSource;
-import com.github.steveice10.mc.protocol.data.game.level.particle.positionsource.EntityPositionSource;
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.level.ClientboundLevelParticlesPacket;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.BlockParticleData;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.ColorParticleData;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.DustParticleData;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.ItemParticleData;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.Particle;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.TrailParticleData;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.VibrationParticleData;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.positionsource.BlockPositionSource;
+import org.geysermc.mcprotocollib.protocol.data.game.level.particle.positionsource.EntityPositionSource;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundLevelParticlesPacket;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.data.LevelEvent;
@@ -48,7 +50,7 @@ import org.geysermc.geyser.entity.type.Entity;
 import org.geysermc.geyser.registry.Registries;
 import org.geysermc.geyser.registry.type.ParticleMapping;
 import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.translator.inventory.item.ItemTranslator;
+import org.geysermc.geyser.translator.item.ItemTranslator;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.DimensionUtils;
@@ -60,6 +62,7 @@ import java.util.function.Function;
 
 @Translator(packet = ClientboundLevelParticlesPacket.class)
 public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLevelParticlesPacket> {
+    private static final int MAX_PARTICLES = 100;
 
     @Override
     public void translate(GeyserSession session, ClientboundLevelParticlesPacket packet) {
@@ -71,7 +74,8 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
                 session.sendUpstreamPacket(particleCreateFunction.apply(position));
             } else {
                 Random random = ThreadLocalRandom.current();
-                for (int i = 0; i < packet.getAmount(); i++) {
+                int amount = Math.min(MAX_PARTICLES, packet.getAmount());
+                for (int i = 0; i < amount; i++) {
                     double offsetX = random.nextGaussian() * (double) packet.getOffsetX();
                     double offsetY = random.nextGaussian() * (double) packet.getOffsetY();
                     double offsetZ = random.nextGaussian() * (double) packet.getOffsetZ();
@@ -92,7 +96,7 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
      * @return a function to create a packet with a specified particle, in the event we need to spawn multiple particles
      * with different offsets.
      */
-    private Function<Vector3f, BedrockPacket> createParticle(GeyserSession session, Particle particle) {
+    public static @Nullable Function<Vector3f, BedrockPacket> createParticle(GeyserSession session, Particle particle) {
         switch (particle.getType()) {
             case BLOCK -> {
                 int blockState = session.getBlockMappings().getBedrockBlockId(((BlockParticleData) particle.getData()).getBlockState());
@@ -105,7 +109,7 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
                 };
             }
             case FALLING_DUST -> {
-                int blockState = session.getBlockMappings().getBedrockBlockId(((FallingDustParticleData) particle.getData()).getBlockState());
+                int blockState = session.getBlockMappings().getBedrockBlockId(((BlockParticleData) particle.getData()).getBlockState());
                 return (position) -> {
                     LevelEventPacket packet = new LevelEventPacket();
                     // In fact, FallingDustParticle should have data like DustParticle,
@@ -130,10 +134,7 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
             }
             case DUST, DUST_COLOR_TRANSITION -> { //TODO
                 DustParticleData data = (DustParticleData) particle.getData();
-                int r = (int) (data.getRed() * 255);
-                int g = (int) (data.getGreen() * 255);
-                int b = (int) (data.getBlue() * 255);
-                int rgbData = ((0xff) << 24) | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
+                int rgbData = data.getColor();
                 return (position) -> {
                     LevelEventPacket packet = new LevelEventPacket();
                     packet.setType(ParticleType.FALLING_DUST);
@@ -151,7 +152,7 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
                 } else if (data.getPositionSource() instanceof EntityPositionSource entityPositionSource) {
                     Entity entity = session.getEntityCache().getEntityByJavaId(entityPositionSource.getEntityId());
                     if (entity != null) {
-                        target = entity.getPosition().up(entityPositionSource.getYOffset());
+                        target = entity.bedrockPosition().up(entityPositionSource.getYOffset());
                     } else {
                         session.getGeyser().getLogger().debug("Unable to find entity with Java Id: " + entityPositionSource.getEntityId() + " for vibration particle.");
                         return null;
@@ -175,6 +176,104 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
                     return packet;
                 };
             }
+            case FIREWORK -> {
+                int dimensionId = DimensionUtils.javaToBedrock(session);
+                return (position) -> {
+                    SpawnParticleEffectPacket particlePacket = new SpawnParticleEffectPacket();
+                    particlePacket.setIdentifier("minecraft:sparkler_emitter");
+                    particlePacket.setDimensionId(dimensionId);
+                    particlePacket.setPosition(position);
+                    particlePacket.setMolangVariablesJson(Optional.of("[{ \"name\": \"variable.color\", \"value\": { \"type\": \"member_array\", \"value\": [{\"name\": \".r\", \"value\": { \"type\": \"float\", \"value\": 1.0}},{\"name\": \".g\", \"value\": {\"type\": \"float\", \"value\": 1.0}},{\"name\": \".b\", \"value\": {\"type\": \"float\", \"value\": 1.0}},{\"name\": \".a\", \"value\": {\"type\": \"float\", \"value\": 1.0}}]}}]"));
+                    return particlePacket;
+                };
+            }
+            case TINTED_LEAVES -> {
+                int dimensionId = DimensionUtils.javaToBedrock(session);
+                ColorParticleData data = (ColorParticleData) particle.getData();
+                int rgbData = data.getColor();
+                float red = ((rgbData >> 16) & 0xFF) / 255f;
+                float green = ((rgbData >> 8) & 0xFF) / 255f;
+                float blue = (rgbData & 0xFF) / 255f;
+                return (position) -> {
+                    SpawnParticleEffectPacket particlePacket = new SpawnParticleEffectPacket();
+                    particlePacket.setIdentifier("minecraft:biome_tinted_leaves_particle");
+                    particlePacket.setDimensionId(dimensionId);
+                    particlePacket.setPosition(position);
+                    particlePacket.setMolangVariablesJson(Optional.of(colorMolang(red, green, blue)));
+                    return particlePacket;
+                };
+            }
+            case GLOW -> {
+                int dimensionId = DimensionUtils.javaToBedrock(session);
+                return (position) -> {
+                    SpawnParticleEffectPacket particlePacket = new SpawnParticleEffectPacket();
+                    particlePacket.setIdentifier("minecraft:glow_particle");
+                    particlePacket.setDimensionId(dimensionId);
+                    particlePacket.setPosition(position);
+                    // The Java client randomly picks a light or dark cyan for each particle
+                    particlePacket.setMolangVariablesJson(Optional.of(ThreadLocalRandom.current().nextBoolean()
+                            ? colorMolang(0.6f, 1.0f, 0.8f)
+                            : colorMolang(0.08f, 0.4f, 0.4f)));
+                    return particlePacket;
+                };
+            }
+            case WAX_ON -> {
+                int dimensionId = DimensionUtils.javaToBedrock(session);
+                return (position) -> {
+                    SpawnParticleEffectPacket particlePacket = new SpawnParticleEffectPacket();
+                    particlePacket.setIdentifier("minecraft:wax_particle");
+                    particlePacket.setDimensionId(dimensionId);
+                    particlePacket.setPosition(position);
+                    particlePacket.setMolangVariablesJson(Optional.of(colorMolang(0.91f, 0.55f, 0.08f)));
+                    return particlePacket;
+                };
+            }
+            case WAX_OFF -> {
+                int dimensionId = DimensionUtils.javaToBedrock(session);
+                return (position) -> {
+                    SpawnParticleEffectPacket particlePacket = new SpawnParticleEffectPacket();
+                    particlePacket.setIdentifier("minecraft:wax_particle");
+                    particlePacket.setDimensionId(dimensionId);
+                    particlePacket.setPosition(position);
+                    particlePacket.setMolangVariablesJson(Optional.of(colorMolang(1.0f, 0.9f, 1.0f)));
+                    return particlePacket;
+                };
+            }
+            case SCRAPE -> {
+                int dimensionId = DimensionUtils.javaToBedrock(session);
+                return (position) -> {
+                    SpawnParticleEffectPacket particlePacket = new SpawnParticleEffectPacket();
+                    particlePacket.setIdentifier("minecraft:wax_particle");
+                    particlePacket.setDimensionId(dimensionId);
+                    particlePacket.setPosition(position);
+                    // The Java client randomly picks a dark or light teal for each particle
+                    particlePacket.setMolangVariablesJson(Optional.of(ThreadLocalRandom.current().nextBoolean()
+                            ? colorMolang(0.29f, 0.58f, 0.51f)
+                            : colorMolang(0.43f, 0.77f, 0.62f)));
+                    return particlePacket;
+                };
+            }
+            case TRAIL -> {
+                TrailParticleData data = (TrailParticleData) particle.getData();
+                int dimensionId = DimensionUtils.javaToBedrock(session);
+                Vector3f target = data.target().toFloat();
+                int rgbData = data.color();
+                float red = ((rgbData >> 16) & 0xFF) / 255f;
+                float green = ((rgbData >> 8) & 0xFF) / 255f;
+                float blue = (rgbData & 0xFF) / 255f;
+                float lifetime = Math.max(data.duration(), 1) / 20f;
+                return (position) -> {
+                    Vector3f direction = target.sub(position);
+                    float distance = direction.length();
+                    Vector3f normalized = distance > 0 ? direction.div(distance) : Vector3f.ZERO;
+                    SpawnParticleEffectPacket particlePacket = new SpawnParticleEffectPacket();
+                    particlePacket.setIdentifier("minecraft:creaking_heart_trail");
+                    particlePacket.setDimensionId(dimensionId);
+                    particlePacket.setPosition(position);
+                    particlePacket.setMolangVariablesJson(Optional.of("[{ \"name\": \"variable.direction\", \"value\": { \"type\": \"member_array\", \"value\": [{\"name\": \".x\", \"value\": { \"type\": \"float\", \"value\": " + normalized.getX() + "}},{\"name\": \".y\", \"value\": {\"type\": \"float\", \"value\": " + normalized.getY() + "}},{\"name\": \".z\", \"value\": {\"type\": \"float\", \"value\": " + normalized.getZ() + "}}]}},{ \"name\": \"variable.color\", \"value\": { \"type\": \"member_array\", \"value\": [{\"name\": \".r\", \"value\": { \"type\": \"float\", \"value\": " + red + "}},{\"name\": \".g\", \"value\": {\"type\": \"float\", \"value\": " + green + "}},{\"name\": \".b\", \"value\": {\"type\": \"float\", \"value\": " + blue + "}}]}},{ \"name\": \"variable.max_lifetime\", \"value\": { \"type\": \"float\", \"value\": " + lifetime + "}},{ \"name\": \"variable.particle_initial_speed\", \"value\": { \"type\": \"float\", \"value\": " + (distance / lifetime) + "}}]"));
+                    return particlePacket;
+                };
+            }
             default -> {
                 ParticleMapping particleMapping = Registries.PARTICLES.get(particle.getType());
                 if (particleMapping == null) { //TODO ensure no particle can be null
@@ -189,7 +288,7 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
                         return packet;
                     };
                 } else if (particleMapping.identifier() != null) {
-                    int dimensionId = DimensionUtils.javaToBedrock(session.getDimension());
+                    int dimensionId = DimensionUtils.javaToBedrock(session);
                     return (position) -> {
                         SpawnParticleEffectPacket stringPacket = new SpawnParticleEffectPacket();
                         stringPacket.setIdentifier(particleMapping.identifier());
@@ -205,7 +304,11 @@ public class JavaLevelParticlesTranslator extends PacketTranslator<ClientboundLe
         }
     }
 
-    private NbtMap buildVec3PositionTag(Vector3f position) {
+    private static String colorMolang(float red, float green, float blue) {
+        return "[{ \"name\": \"variable.color\", \"value\": { \"type\": \"member_array\", \"value\": [{\"name\": \".r\", \"value\": { \"type\": \"float\", \"value\": " + red + "}},{\"name\": \".g\", \"value\": {\"type\": \"float\", \"value\": " + green + "}},{\"name\": \".b\", \"value\": {\"type\": \"float\", \"value\": " + blue + "}}]}}]";
+    }
+
+    private static NbtMap buildVec3PositionTag(Vector3f position) {
         return NbtMap.builder()
                 .putString("type", "vec3")
                 .putFloat("x", position.getX())

@@ -25,24 +25,24 @@
 
 package org.geysermc.geyser.entity.type.living.animal;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.Pose;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ObjectEntityMetadata;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.entity.type.Entity;
-import org.geysermc.geyser.item.Items;
 import org.geysermc.geyser.item.type.Item;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.registry.JavaRegistries;
+import org.geysermc.geyser.session.cache.registry.JavaRegistryKey;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
+import org.geysermc.geyser.session.cache.tags.Tag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.Pose;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ObjectEntityMetadata;
 
 import java.util.OptionalInt;
-import java.util.UUID;
 
-public class FrogEntity extends AnimalEntity {
-    public FrogEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+public class FrogEntity extends AnimalEntity implements VariantIntHolder {
+    public FrogEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     @Override
@@ -54,13 +54,14 @@ public class FrogEntity extends AnimalEntity {
         super.setPose(pose);
     }
 
-    public void setFrogVariant(IntEntityMetadata entityMetadata) {
-        int variant = entityMetadata.getPrimitiveValue();
-        dirtyMetadata.put(EntityDataTypes.VARIANT, switch (variant) {
-            case 1 -> 2; // White
-            case 2 -> 1; // Green
-            default -> variant;
-        });
+    @Override
+    public JavaRegistryKey<BuiltInVariant> variantRegistry() {
+        return JavaRegistries.FROG_VARIANT;
+    }
+
+    @Override
+    public void setBedrockVariantId(int bedrockId) {
+        metadata.put(EntityDataTypes.VARIANT, bedrockId);
     }
 
     public void setTongueTarget(ObjectEntityMetadata<OptionalInt> entityMetadata) {
@@ -68,15 +69,24 @@ public class FrogEntity extends AnimalEntity {
         if (entityId.isPresent()) {
             Entity entity = session.getEntityCache().getEntityByJavaId(entityId.getAsInt());
             if (entity != null) {
-                dirtyMetadata.put(EntityDataTypes.TARGET_EID, entity.getGeyserId());
+                metadata.put(EntityDataTypes.TARGET_EID, entity.geyserId());
             }
         } else {
-            dirtyMetadata.put(EntityDataTypes.TARGET_EID, 0L);
+            metadata.put(EntityDataTypes.TARGET_EID, 0L);
         }
     }
 
     @Override
-    public boolean canEat(Item item) {
-        return item == Items.SLIME_BALL;
+    @Nullable
+    protected Tag<Item> getFoodTag() {
+        return ItemTag.FROG_FOOD;
+    }
+
+    // Ordered by bedrock id
+    // TODO: are these ordered correctly?
+    public enum BuiltInVariant implements BuiltIn {
+        TEMPERATE,
+        COLD,
+        WARM
     }
 }

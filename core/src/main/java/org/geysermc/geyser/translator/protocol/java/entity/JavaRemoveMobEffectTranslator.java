@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,13 +25,14 @@
 
 package org.geysermc.geyser.translator.protocol.java.entity;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.entity.ClientboundRemoveMobEffectPacket;
+import org.geysermc.geyser.level.EffectType;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundRemoveMobEffectPacket;
 import org.cloudburstmc.protocol.bedrock.packet.MobEffectPacket;
 import org.geysermc.geyser.entity.type.Entity;
+import org.geysermc.geyser.entity.vehicle.ClientVehicle;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
-import org.geysermc.geyser.util.EntityUtils;
 
 @Translator(packet = ClientboundRemoveMobEffectPacket.class)
 public class JavaRemoveMobEffectTranslator extends PacketTranslator<ClientboundRemoveMobEffectPacket> {
@@ -39,16 +40,20 @@ public class JavaRemoveMobEffectTranslator extends PacketTranslator<ClientboundR
     @Override
     public void translate(GeyserSession session, ClientboundRemoveMobEffectPacket packet) {
         Entity entity  = session.getEntityCache().getEntityByJavaId(packet.getEntityId());
+        if (entity == null) {
+            return;
+        }
+
         if (entity == session.getPlayerEntity()) {
             session.getEffectCache().removeEffect(packet.getEffect());
+        } else if (entity instanceof ClientVehicle clientVehicle) {
+            clientVehicle.getVehicleComponent().removeEffect(packet.getEffect());
         }
-        if (entity == null)
-            return;
 
         MobEffectPacket mobEffectPacket = new MobEffectPacket();
         mobEffectPacket.setEvent(MobEffectPacket.Event.REMOVE);
-        mobEffectPacket.setRuntimeEntityId(entity.getGeyserId());
-        mobEffectPacket.setEffectId(EntityUtils.toBedrockEffectId(packet.getEffect()));
+        mobEffectPacket.setRuntimeEntityId(entity.geyserId());
+        mobEffectPacket.setEffectId(EffectType.fromJavaEffect(packet.getEffect()).getBedrockId());
         session.sendUpstreamPacket(mobEffectPacket);
     }
 }

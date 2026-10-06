@@ -25,17 +25,21 @@
 
 package org.geysermc.geyser.translator.protocol.java.entity;
 
-import com.github.steveice10.mc.protocol.data.game.entity.player.Animation;
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.entity.ClientboundAnimatePacket;
 import org.cloudburstmc.math.vector.Vector3f;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType;
 import org.cloudburstmc.protocol.bedrock.packet.AnimateEntityPacket;
 import org.cloudburstmc.protocol.bedrock.packet.AnimatePacket;
+import org.cloudburstmc.protocol.bedrock.packet.EntityEventPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SpawnParticleEffectPacket;
 import org.geysermc.geyser.entity.type.Entity;
+import org.geysermc.geyser.entity.type.LivingEntity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.DimensionUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.Pose;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Animation;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundAnimatePacket;
 
 import java.util.Optional;
 
@@ -44,25 +48,33 @@ public class JavaAnimateTranslator extends PacketTranslator<ClientboundAnimatePa
 
     @Override
     public void translate(GeyserSession session, ClientboundAnimatePacket packet) {
-        Entity entity = session.getEntityCache().getEntityByJavaId(packet.getEntityId());
-        if (entity == null) {
-            return;
-        }
         Animation animation = packet.getAnimation();
         if (animation == null) {
             return;
         }
+        Entity entity = session.getEntityCache().getEntityByJavaId(packet.getEntityId());
+        if (entity == null) {
+            return;
+        }
 
         AnimatePacket animatePacket = new AnimatePacket();
-        animatePacket.setRuntimeEntityId(entity.getGeyserId());
+        animatePacket.setRuntimeEntityId(entity.geyserId());
         switch (animation) {
-            case SWING_ARM:
+            case SWING_ARM -> {
+                if (entity instanceof LivingEntity livingEntity && livingEntity.useArmSwingAttack()) {
+                    EntityEventPacket entityEventPacket = new EntityEventPacket();
+                    entityEventPacket.setRuntimeEntityId(entity.geyserId());
+                    entityEventPacket.setType(EntityEventType.ATTACK_START);
+                    session.sendUpstreamPacket(entityEventPacket);
+                    return;
+                }
+
                 animatePacket.setAction(AnimatePacket.Action.SWING_ARM);
                 if (entity.getEntityId() == session.getPlayerEntity().getEntityId()) {
                     session.activateArmAnimationTicking();
                 }
-                break;
-            case SWING_OFFHAND:
+            }
+            case SWING_OFFHAND -> {
                 // Use the OptionalPack to trigger the animation
                 AnimateEntityPacket offHandPacket = new AnimateEntityPacket();
                 offHandPacket.setAnimation("animation.player.attack.rotations.offhand");
@@ -70,30 +82,37 @@ public class JavaAnimateTranslator extends PacketTranslator<ClientboundAnimatePa
                 offHandPacket.setBlendOutTime(0.0f);
                 offHandPacket.setStopExpression("query.any_animation_finished");
                 offHandPacket.setController("__runtime_controller");
-                offHandPacket.getRuntimeEntityIds().add(entity.getGeyserId());
-
+                offHandPacket.getRuntimeEntityIds().add(entity.geyserId());
                 session.sendUpstreamPacket(offHandPacket);
                 return;
-            case CRITICAL_HIT:
+            }
+            case CRITICAL_HIT -> {
+                animatePacket.setData(55);
                 animatePacket.setAction(AnimatePacket.Action.CRITICAL_HIT);
-                break;
-            case ENCHANTMENT_CRITICAL_HIT:
+            }
+            case ENCHANTMENT_CRITICAL_HIT -> {
+                animatePacket.setData(15);
                 animatePacket.setAction(AnimatePacket.Action.MAGIC_CRITICAL_HIT); // Unsure if this does anything
+
                 // Spawn custom particle
                 SpawnParticleEffectPacket stringPacket = new SpawnParticleEffectPacket();
                 stringPacket.setIdentifier("geyseropt:enchanted_hit_multiple");
-                stringPacket.setDimensionId(DimensionUtils.javaToBedrock(session.getDimension()));
+                stringPacket.setDimensionId(DimensionUtils.javaToBedrock(session));
                 stringPacket.setPosition(Vector3f.ZERO);
-                stringPacket.setUniqueEntityId(entity.getGeyserId());
+                stringPacket.setUniqueEntityId(entity.geyserId());
                 stringPacket.setMolangVariablesJson(Optional.empty());
                 session.sendUpstreamPacket(stringPacket);
-                break;
-            case LEAVE_BED:
+            }
+            case LEAVE_BED -> {
+                // Technically the client does a bunch more here, like figuring out the correct bed position
+                // However, we only adjust the pose - that way we stop applying the sleeping offset for the player position
+                session.getPlayerEntity().setPose(Pose.STANDING);
                 animatePacket.setAction(AnimatePacket.Action.WAKE_UP);
-                break;
-            default:
+            }
+            default -> {
                 session.getGeyser().getLogger().debug("Unhandled java animation: " + animation);
                 return;
+            }
         }
 
         session.sendUpstreamPacket(animatePacket);

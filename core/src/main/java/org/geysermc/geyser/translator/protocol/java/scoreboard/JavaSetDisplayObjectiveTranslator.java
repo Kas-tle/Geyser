@@ -25,19 +25,26 @@
 
 package org.geysermc.geyser.translator.protocol.java.scoreboard;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.scoreboard.ClientboundSetDisplayObjectivePacket;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.GeyserLogger;
 import org.geysermc.geyser.scoreboard.Scoreboard;
 import org.geysermc.geyser.scoreboard.ScoreboardUpdater;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.cache.WorldCache;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.scoreboard.ClientboundSetDisplayObjectivePacket;
 
 @Translator(packet = ClientboundSetDisplayObjectivePacket.class)
 public class JavaSetDisplayObjectiveTranslator extends PacketTranslator<ClientboundSetDisplayObjectivePacket> {
+    private final GeyserLogger logger = GeyserImpl.getInstance().getLogger();
 
     @Override
     public void translate(GeyserSession session, ClientboundSetDisplayObjectivePacket packet) {
+        if (logger.isDebug()) {
+            logger.debug("Set display objective packet (" + session.bedrockUsername() + "): " + packet);
+        }
+
         WorldCache worldCache = session.getWorldCache();
         Scoreboard scoreboard = worldCache.getScoreboard();
         int pps = worldCache.increaseAndGetScoreboardPacketsPerSecond();

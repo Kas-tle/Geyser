@@ -31,23 +31,15 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import lombok.Value;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import org.geysermc.geyser.api.block.custom.component.BoxComponent;
-import org.geysermc.geyser.api.block.custom.component.CustomBlockComponents;
-import org.geysermc.geyser.api.block.custom.component.GeometryComponent;
-import org.geysermc.geyser.api.block.custom.component.MaterialInstance;
-import org.geysermc.geyser.api.block.custom.component.PlacementConditions;
-import org.geysermc.geyser.api.block.custom.component.TransformationComponent;
-import org.jetbrains.annotations.NotNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.geysermc.geyser.api.block.custom.component.*;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 @Value
 public class GeyserCustomBlockComponents implements CustomBlockComponents {
     BoxComponent selectionBox;
-    BoxComponent collisionBox;
+    Set<BoxComponent> collisionBoxes;
     String displayName;
     GeometryComponent geometry;
     Map<String, MaterialInstance> materialInstances;
@@ -57,15 +49,20 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
     Integer lightEmission;
     Integer lightDampening;
     TransformationComponent transformation;
-    boolean unitCube;
     boolean placeAir;
     Set<String> tags;
 
-    private GeyserCustomBlockComponents(CustomBlockComponentsBuilder builder) {
+    private GeyserCustomBlockComponents(Builder builder) {
         this.selectionBox = builder.selectionBox;
-        this.collisionBox = builder.collisionBox;
+        this.collisionBoxes = builder.collisionBoxes;
         this.displayName = builder.displayName;
-        this.geometry = builder.geometry;
+        GeometryComponent geo = builder.geometry;
+        if (builder.unitCube && geo == null) {
+            geo = GeometryComponent.builder()
+                .identifier("minecraft:geometry.full_block")
+                .build();
+        }
+        this.geometry = geo;
         if (builder.materialInstances.isEmpty()) {
             this.materialInstances = Object2ObjectMaps.emptyMap();
         } else {
@@ -77,7 +74,6 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
         this.lightEmission = builder.lightEmission;
         this.lightDampening = builder.lightDampening;
         this.transformation = builder.transformation;
-        this.unitCube = builder.unitCube;
         this.placeAir = builder.placeAir;
         if (builder.tags.isEmpty()) {
             this.tags = Set.of();
@@ -87,13 +83,28 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
     }
 
     @Override
-    public BoxComponent selectionBox() {
+    public @Nullable BoxComponent selectionBox() {
         return selectionBox;
     }
 
     @Override
-    public BoxComponent collisionBox() {
-        return collisionBox;
+    public @Nullable BoxComponent collisionBox() {
+        if (collisionBoxes.isEmpty()) {
+            return null;
+        }
+
+        for (BoxComponent box : collisionBoxes) {
+            if (!box.isEmpty()) {
+                return box;
+            }
+        }
+
+        return null;
+    }
+
+    @Override
+    public @NonNull Set<BoxComponent> collisionBoxes() {
+        return Set.copyOf(collisionBoxes);
     }
 
     @Override
@@ -143,7 +154,7 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
 
     @Override
     public boolean unitCube() {
-        return unitCube;
+        return geometry.identifier().equals("minecraft:geometry.full_block");
     }
 
     @Override
@@ -152,13 +163,13 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
     }
 
     @Override
-    public @NotNull Set<String> tags() {
+    public @NonNull Set<String> tags() {
         return tags;
     }
 
-    public static class CustomBlockComponentsBuilder implements Builder {
+    public static class Builder implements CustomBlockComponents.Builder {
         protected BoxComponent selectionBox;
-        protected BoxComponent collisionBox;
+        protected @NonNull Set<BoxComponent> collisionBoxes = new HashSet<>();
         protected String displayName;
         protected GeometryComponent geometry;
         protected final Object2ObjectMap<String, MaterialInstance> materialInstances = new Object2ObjectOpenHashMap<>();
@@ -170,9 +181,9 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
         protected TransformationComponent transformation;
         protected boolean unitCube = false;
         protected boolean placeAir = false;
-        protected final Set<String> tags = new HashSet<>();
+        protected Set<String> tags = new HashSet<>();
 
-        private void validateBox(BoxComponent box) {
+        private void validateBox(@Nullable BoxComponent box, boolean collision) {
             if (box == null) {
                 return;
             }
@@ -185,22 +196,77 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
             float maxX = minX + box.sizeX();
             float maxY = minY + box.sizeY();
             float maxZ = minZ + box.sizeZ();
-            if (minX < 0 || minY < 0 || minZ < 0 || maxX > 16 || maxY > 16 || maxZ > 16) {
-                throw new IllegalArgumentException("Box bounds must be within (0, 0, 0) and (16, 16, 16). Recieved: (" + minX + ", " + minY + ", " + minZ + ") to (" + maxX + ", " + maxY + ", " + maxZ + ")");
+            if (collision) {
+                // Since 1.21.130, max y of collisions is 24
+                if (minX < 0 || minY < 0 || minZ < 0 || maxX > 16 || maxY > 24 || maxZ > 16) {
+                    throw new IllegalArgumentException("Collision box bounds must be within (0, 0, 0) and (16, 24, 16). Received: (" + minX + ", " + minY + ", " + minZ + ") to (" + maxX + ", " + maxY + ", " + maxZ + ")");
+                }
+            } else {
+                if (minX < 0 || minY < 0 || minZ < 0 || maxX > 16 || maxY > 16 || maxZ > 16) {
+                    throw new IllegalArgumentException("Box bounds must be within (0, 0, 0) and (16, 16, 16). Received: (" + minX + ", " + minY + ", " + minZ + ") to (" + maxX + ", " + maxY + ", " + maxZ + ")");
+                }
             }
         }
 
         @Override
-        public Builder selectionBox(BoxComponent selectionBox) {
-            validateBox(selectionBox);
+        public Builder selectionBox(@Nullable BoxComponent selectionBox) {
+            validateBox(selectionBox, false);
             this.selectionBox = selectionBox;
             return this;
         }
 
         @Override
-        public Builder collisionBox(BoxComponent collisionBox) {
-            validateBox(collisionBox);
-            this.collisionBox = collisionBox;
+        public Builder collisionBox(@Nullable BoxComponent collisionBox) {
+            validateBox(collisionBox, true);
+            this.collisionBoxes = collisionBox == null ? Collections.emptySet() : Collections.singleton(collisionBox);
+            return this;
+        }
+
+        @Override
+        public CustomBlockComponents.Builder collisionBoxes(@Nullable BoxComponent... collisionBoxes) {
+            if (collisionBoxes == null || collisionBoxes.length == 0) {
+                this.collisionBoxes = Collections.emptySet();
+                return this;
+            }
+
+            if (collisionBoxes.length > 16) {
+                throw new IllegalArgumentException("Cannot have more than 16 collision boxes");
+            }
+
+            Set<BoxComponent> boxes = new HashSet<>();
+            for (BoxComponent box : collisionBoxes) {
+                if (box == null) {
+                    throw new IllegalArgumentException("Collision box cannot be null");
+                }
+                validateBox(box, true);
+                boxes.add(box);
+            }
+
+            this.collisionBoxes = boxes;
+            return this;
+        }
+
+        @Override
+        public CustomBlockComponents.Builder collisionBoxes(@Nullable Collection<BoxComponent> collisionBoxes) {
+            if (collisionBoxes == null) {
+                this.collisionBoxes = Collections.emptySet();
+                return this;
+            }
+
+            if (collisionBoxes.size() > 16) {
+                throw new IllegalArgumentException("Cannot have more than 16 collision boxes");
+            }
+
+            Set<BoxComponent> boxes = new HashSet<>();
+            for (BoxComponent box : collisionBoxes) {
+                if (box == null) {
+                    throw new IllegalArgumentException("Collision box cannot be null");
+                }
+                validateBox(box, true);
+                boxes.add(box);
+            }
+
+            this.collisionBoxes = boxes;
             return this;
         }
 
@@ -217,7 +283,7 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
         }
 
         @Override
-        public Builder materialInstance(@NotNull String name, @NotNull MaterialInstance materialInstance) {
+        public Builder materialInstance(@NonNull String name, @NonNull MaterialInstance materialInstance) {
             this.materialInstances.put(name, materialInstance);
             return this;
         }
@@ -292,8 +358,8 @@ public class GeyserCustomBlockComponents implements CustomBlockComponents {
         }
 
         @Override
-        public Builder tags(Set<String> tags) {
-            this.tags.addAll(tags);
+        public Builder tags(@Nullable Set<String> tags) {
+            this.tags = Objects.requireNonNullElseGet(tags, Set::of);
             return this;
         }
 

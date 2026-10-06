@@ -34,15 +34,18 @@ import net.md_5.bungee.api.config.ListenerInfo;
 import net.md_5.bungee.api.connection.PendingConnection;
 import net.md_5.bungee.api.event.ProxyPingEvent;
 import net.md_5.bungee.api.plugin.Listener;
+import net.md_5.bungee.chat.ComponentSerializer;
 import net.md_5.bungee.protocol.ProtocolConstants;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.ping.GeyserPingInfo;
 import org.geysermc.geyser.ping.IGeyserPingPassthrough;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 @AllArgsConstructor
 public class GeyserBungeePingPassthrough implements IGeyserPingPassthrough, Listener {
@@ -59,18 +62,23 @@ public class GeyserBungeePingPassthrough implements IGeyserPingPassthrough, List
                 future.complete(event);
             }
         }));
-        ProxyPingEvent event = future.join();
-        ServerPing response = event.getResponse();
-        GeyserPingInfo geyserPingInfo = new GeyserPingInfo(
-                response.getDescriptionComponent().toLegacyText(),
-                new GeyserPingInfo.Players(response.getPlayers().getMax(), response.getPlayers().getOnline()),
-                new GeyserPingInfo.Version(response.getVersion().getName(), response.getVersion().getProtocol())
-        );
-        if (event.getResponse().getPlayers().getSample() != null) {
-            Arrays.stream(event.getResponse().getPlayers().getSample()).forEach(proxiedPlayer ->
-                    geyserPingInfo.getPlayerList().add(proxiedPlayer.getName()));
+
+        ProxyPingEvent event;
+
+        try {
+            event = future.get(100, TimeUnit.MILLISECONDS);
+        } catch (Throwable cause) {
+            String address = GeyserImpl.getInstance().config().logPlayerIpAddresses() ? inetSocketAddress.toString() : "<IP address withheld>";
+            GeyserImpl.getInstance().getLogger().error("Failed to get ping information for " + address, cause);
+            return null;
         }
-        return geyserPingInfo;
+
+        ServerPing response = event.getResponse();
+        return new GeyserPingInfo(
+                ComponentSerializer.toString(new BaseComponent[]{ response.getDescriptionComponent() }),
+                response.getPlayers().getMax(),
+                response.getPlayers().getOnline()
+        );
     }
 
     // This is static so pending connection can use it
@@ -81,8 +89,8 @@ public class GeyserBungeePingPassthrough implements IGeyserPingPassthrough, List
     private ServerPing getPingInfo() {
         return new ServerPing(
                 new ServerPing.Protocol(
-                        proxyServer.getName() + " " + ProtocolConstants.SUPPORTED_VERSIONS.get(0) + "-" + ProtocolConstants.SUPPORTED_VERSIONS.get(ProtocolConstants.SUPPORTED_VERSIONS.size() - 1),
-                        ProtocolConstants.SUPPORTED_VERSION_IDS.get(ProtocolConstants.SUPPORTED_VERSION_IDS.size() - 1)),
+                        proxyServer.getName() + " " + ProtocolConstants.SUPPORTED_VERSIONS.getFirst() + "-" + ProtocolConstants.SUPPORTED_VERSIONS.getLast(),
+                        ProtocolConstants.SUPPORTED_VERSION_IDS.getLast()),
                 new ServerPing.Players(getDefaultListener().getMaxPlayers(), proxyServer.getOnlineCount(), null),
                 TextComponent.fromLegacyText(getDefaultListener().getMotd())[0],
                 proxyServer.getConfig().getFaviconObject()
@@ -106,11 +114,11 @@ public class GeyserBungeePingPassthrough implements IGeyserPingPassthrough, List
 
         @Override
         public int getVersion() {
-            return ProtocolConstants.SUPPORTED_VERSION_IDS.get(ProtocolConstants.SUPPORTED_VERSION_IDS.size() - 1);
+            return ProtocolConstants.SUPPORTED_VERSION_IDS.getLast();
         }
 
         @Override
-        public InetSocketAddress getVirtualHost() {
+        public @Nullable InetSocketAddress getVirtualHost() {
             return null;
         }
 
@@ -177,6 +185,21 @@ public class GeyserBungeePingPassthrough implements IGeyserPingPassthrough, List
         @Override
         public boolean isConnected() {
             return false;
+        }
+
+        @Override
+        public boolean isTransferred() {
+            return false;
+        }
+
+        @Override
+        public CompletableFuture<byte[]> retrieveCookie(String s) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompletableFuture<byte[]> sendData(String s, byte[] bytes) {
+            throw new UnsupportedOperationException();
         }
 
         @Override

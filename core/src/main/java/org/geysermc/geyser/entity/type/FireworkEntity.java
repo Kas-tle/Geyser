@@ -25,33 +25,53 @@
 
 package org.geysermc.geyser.entity.type;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
-import com.github.steveice10.opennbt.tag.builtin.CompoundTag;
-import com.github.steveice10.opennbt.tag.builtin.ListTag;
-import com.github.steveice10.opennbt.tag.builtin.Tag;
-import org.cloudburstmc.math.vector.Vector3f;
-import org.cloudburstmc.nbt.NbtMap;
-import org.cloudburstmc.nbt.NbtMapBuilder;
-import org.cloudburstmc.nbt.NbtType;
+import org.cloudburstmc.math.vector.Vector2f;
+import org.cloudburstmc.protocol.bedrock.data.MovementEffectType;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
-import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
-import org.geysermc.floodgate.util.DeviceOs;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.entity.type.player.PlayerEntity;
-import org.geysermc.geyser.level.FireworkColor;
-import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.util.MathUtils;
+import org.cloudburstmc.protocol.bedrock.packet.MovementEffectPacket;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.TooltipOptions;
+import org.geysermc.geyser.translator.item.BedrockItemBuilder;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponents;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.OptionalInt;
-import java.util.UUID;
 
-public class FireworkEntity extends Entity {
+public class FireworkEntity extends ProjectileEntity {
 
-    public FireworkEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    private boolean attachedToSession;
+    private boolean attachedToEntity;
+    private boolean shotAtAngle;
+
+    public FireworkEntity(EntitySpawnContext context) {
+        super(context);
+    }
+
+    public void setShotAtAngle(BooleanEntityMetadata entityMetadata) {
+        this.shotAtAngle = entityMetadata.getPrimitiveValue();
+    }
+
+    @Override
+    public void tick() {
+        // A rocket attached to an entity is moved by that entity instead
+        if (removedInVoid() || vehicle != null || attachedToEntity) {
+            return;
+        }
+
+        // Rockets speed up as they fly, unless they were shot at an angle from a crossbow or dispenser
+        if (!shotAtAngle) {
+            setMotion(motion.mul(1.15f, 1.0f, 1.15f).add(0.0f, 0.04f, 0.0f));
+        }
+
+        // The rocket points the way it is flying
+        float horizontalDistance = Vector2f.from(motion.getX(), motion.getZ()).length();
+        float yaw = (float) Math.toDegrees(Math.atan2(motion.getX(), motion.getZ()));
+        float pitch = (float) Math.toDegrees(Math.atan2(motion.getY(), horizontalDistance));
+
+        moveAbsoluteImmediate(position.add(motion), yaw, pitch, yaw, false, false);
     }
 
     public void setFireworkItem(EntityMetadata<ItemStack, ?> entityMetadata) {
@@ -59,103 +79,67 @@ public class FireworkEntity extends Entity {
         if (item == null) {
             return;
         }
-        CompoundTag tag = item.getNbt();
-
-        if (tag == null) {
+        DataComponents components = item.getDataComponentsPatch();
+        if (components == null) {
             return;
         }
 
-        // TODO: Remove once Mojang fixes bugs with fireworks crashing clients on these specific devices.
-        // https://bugs.mojang.com/browse/MCPE-89115
-        if (session.getClientData().getDeviceOs() == DeviceOs.XBOX
-                || session.getClientData().getDeviceOs() == DeviceOs.PS4) {
-            return;
-        }
-
-        CompoundTag fireworks = tag.get("Fireworks");
-        if (fireworks == null) {
-            // Thank you Mineplex very cool
-            return;
-        }
-
-        NbtMapBuilder fireworksBuilder = NbtMap.builder();
-        if (fireworks.get("Flight") != null) {
-            fireworksBuilder.putByte("Flight", MathUtils.getNbtByte(fireworks.get("Flight").getValue()));
-        }
-
-        List<NbtMap> explosions = new ArrayList<>();
-        if (fireworks.get("Explosions") != null) {
-            for (Tag effect : ((ListTag) fireworks.get("Explosions")).getValue()) {
-                CompoundTag effectData = (CompoundTag) effect;
-                NbtMapBuilder effectBuilder = NbtMap.builder();
-
-                if (effectData.get("Type") != null) {
-                    effectBuilder.putByte("FireworkType", MathUtils.getNbtByte(effectData.get("Type").getValue()));
-                }
-
-                if (effectData.get("Colors") != null) {
-                    int[] oldColors = (int[]) effectData.get("Colors").getValue();
-                    byte[] colors = new byte[oldColors.length];
-
-                    int i = 0;
-                    for (int color : oldColors) {
-                        colors[i++] = FireworkColor.fromJavaRGB(color);
-                    }
-
-                    effectBuilder.putByteArray("FireworkColor", colors);
-                }
-
-                if (effectData.get("FadeColors") != null) {
-                    int[] oldColors = (int[]) effectData.get("FadeColors").getValue();
-                    byte[] colors = new byte[oldColors.length];
-
-                    int i = 0;
-                    for (int color : oldColors) {
-                        colors[i++] = FireworkColor.fromJavaRGB(color);
-                    }
-
-                    effectBuilder.putByteArray("FireworkFade", colors);
-                }
-
-                if (effectData.get("Trail") != null) {
-                    effectBuilder.putByte("FireworkTrail", MathUtils.getNbtByte(effectData.get("Trail").getValue()));
-                }
-
-                if (effectData.get("Flicker") != null) {
-                    effectBuilder.putByte("FireworkFlicker", MathUtils.getNbtByte(effectData.get("Flicker").getValue()));
-                }
-
-                explosions.add(effectBuilder.build());
-            }
-        }
-
-        fireworksBuilder.putList("Explosions", NbtType.COMPOUND, explosions);
-
-        NbtMapBuilder builder = NbtMap.builder();
-        builder.put("Fireworks", fireworksBuilder.build());
-        dirtyMetadata.put(EntityDataTypes.DISPLAY_FIREWORK, builder.build());
+        // TODO this looked the same, so I'm going to assume it is and (keep below comment if true)
+        // Translate using item methods to get firework NBT for Bedrock
+        BedrockItemBuilder builder = new BedrockItemBuilder();
+        TooltipOptions tooltip = TooltipOptions.fromComponents(components);
+        Items.FIREWORK_ROCKET.translateComponentsToBedrock(session, components, tooltip, builder);
+        
+        metadata.put(EntityDataTypes.DISPLAY_FIREWORK, builder.build());
     }
 
     public void setPlayerGliding(EntityMetadata<OptionalInt, ?> entityMetadata) {
-        OptionalInt optional = entityMetadata.getValue();
-        // Checks if the firework has an entity ID (used when a player is gliding)
-        // and checks to make sure the player that is gliding is the one getting sent the packet
-        // or else every player near the gliding player will boost too.
-        if (optional.isPresent() && optional.getAsInt() == session.getPlayerEntity().getEntityId()) {
-            PlayerEntity entity = session.getPlayerEntity();
-            float yaw = entity.getYaw();
-            float pitch = entity.getPitch();
-            // Uses math from NukkitX
-            entity.setMotion(Vector3f.from(
-                    -Math.sin(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch)) * 2,
-                    -Math.sin(Math.toRadians(pitch)) * 2,
-                    Math.cos(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch)) * 2));
-            // Need to update the EntityMotionPacket or else the player won't boost
-            SetEntityMotionPacket entityMotionPacket = new SetEntityMotionPacket();
-            entityMotionPacket.setRuntimeEntityId(entity.getGeyserId());
-            entityMotionPacket.setMotion(entity.getMotion());
+        session.getAttachedFireworkRockets().remove(this.geyserId);
 
-            session.sendUpstreamPacket(entityMotionPacket);
+        OptionalInt optional = entityMetadata.getValue();
+        this.attachedToEntity = optional.isPresent();
+        if (optional.isPresent() && optional.getAsInt() == session.getPlayerEntity().getEntityId()) {
+            // If we don't send this, the bedrock client will always stop boosting after 20 ticks
+            // However this is not the case for Java as the player will stop boosting after entity despawn.
+            // So we let player boost for a really long time and then only stop them when the entity despawn.
+            // Also doing this allow player to boost simply by having a fireworks rocket attached to them
+            // and not necessary have to use a rocket (as some plugin do this to boost player)
+            // You can't really send Integer.MAX_VALUE since Bedrock client doesn't seem to like way too large number very much (as of 1.21.73).
+            sendElytraBoost(1000000);
+            this.attachedToSession = true;
+
+            // We need to keep track of the fireworks rockets.
+            session.getAttachedFireworkRockets().add(this.geyserId());
+        } else {
+            // Also ensure player stop boosting in cases like metadata changes.
+            if (this.attachedToSession && session.getAttachedFireworkRockets().isEmpty()) {
+                sendElytraBoost(0);
+                this.attachedToSession = false;
+            }
         }
+    }
+
+    @Override
+    public void despawnEntity() {
+        session.getAttachedFireworkRockets().remove(this.geyserId);
+        // We have to ensure that these fireworks is attached to entity and this is the only one that is attached to the player.
+        // Else player will stop boosting even if the fireworks is not attached to them or there is a fireworks that is boosting them
+        // and not just this one.
+        if (this.attachedToSession && session.getAttachedFireworkRockets().isEmpty()) {
+            // Since we send an effect packet for player to boost really long, we have to stop them when the entity despawn.
+            sendElytraBoost(0);
+            this.attachedToSession = false;
+        }
+
+        super.despawnEntity();
+    }
+
+    private void sendElytraBoost(int duration) {
+        MovementEffectPacket movementEffect = new MovementEffectPacket();
+        movementEffect.setDuration(duration);
+        movementEffect.setEffectType(MovementEffectType.GLIDE_BOOST);
+        movementEffect.setEntityRuntimeId(session.getPlayerEntity().geyserId());
+        movementEffect.setTick(session.getClientTicks());
+        session.sendUpstreamPacket(movementEffect);
     }
 }

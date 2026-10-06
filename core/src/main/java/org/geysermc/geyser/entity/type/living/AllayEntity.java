@@ -25,25 +25,21 @@
 
 package org.geysermc.geyser.entity.type.living;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.player.Hand;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.inventory.GeyserItemStack;
-import org.geysermc.geyser.item.Items;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
 import org.geysermc.geyser.util.InteractionResult;
 import org.geysermc.geyser.util.InteractiveTag;
-
-import javax.annotation.Nonnull;
-import java.util.UUID;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class AllayEntity extends MobEntity {
     private boolean canDuplicate;
 
-    public AllayEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public AllayEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setDancing(BooleanEntityMetadata entityMetadata) {
@@ -54,15 +50,15 @@ public class AllayEntity extends MobEntity {
         this.canDuplicate = entityMetadata.getPrimitiveValue();
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractiveTag testMobInteraction(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
         if (this.canDuplicate && getFlag(EntityFlag.DANCING) && isDuplicationItem(itemInHand)) {
             // Maybe better as another tag?
             return InteractiveTag.GIVE_ITEM_TO_ALLAY;
-        } else if (!this.hand.isValid() && !itemInHand.isEmpty()) {
+        } else if (getMainHandItem().isEmpty() && !itemInHand.isEmpty()) {
             return InteractiveTag.GIVE_ITEM_TO_ALLAY;
-        } else if (this.hand.isValid() && hand == Hand.MAIN_HAND && itemInHand.isEmpty()) {
+        } else if (!getMainHandItem().isEmpty() && hand == Hand.MAIN_HAND && itemInHand.isEmpty()) {
             // Seems like there isn't a good tag for this yet
             return InteractiveTag.GIVE_ITEM_TO_ALLAY;
         } else {
@@ -70,16 +66,16 @@ public class AllayEntity extends MobEntity {
         }
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractionResult mobInteract(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
         if (this.canDuplicate && getFlag(EntityFlag.DANCING) && isDuplicationItem(itemInHand)) {
             //TOCHECK sound
             return InteractionResult.SUCCESS;
-        } else if (!this.hand.isValid() && !itemInHand.isEmpty()) {
+        } else if (getMainHandItem().isEmpty() && !itemInHand.isEmpty()) {
             //TODO play sound?
             return InteractionResult.SUCCESS;
-        } else if (this.hand.isValid() && hand == Hand.MAIN_HAND && itemInHand.isEmpty()) {
+        } else if (!getMainHandItem().isEmpty() && hand == Hand.MAIN_HAND && itemInHand.isEmpty()) {
             //TOCHECK also play sound here?
             return InteractionResult.SUCCESS;
         } else {
@@ -88,6 +84,6 @@ public class AllayEntity extends MobEntity {
     }
 
     private boolean isDuplicationItem(GeyserItemStack itemStack) {
-        return itemStack.asItem() == Items.AMETHYST_SHARD;
+        return itemStack.is(session, ItemTag.DUPLICATES_ALLAYS);
     }
 }

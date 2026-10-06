@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,23 +26,24 @@
 package org.geysermc.geyser.api.item.custom;
 
 import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.geysermc.geyser.api.GeyserApi;
+import org.jspecify.annotations.Nullable;
 
-import java.util.OptionalInt;
 import java.util.Set;
 
 /**
  * Represents a completely custom item that is not based on an existing vanilla Minecraft item.
+ *
+ * @deprecated use the new {@link org.geysermc.geyser.api.item.custom.v2.NonVanillaCustomItemDefinition}
  */
+@Deprecated
 public interface NonVanillaCustomItemData extends CustomItemData {
     /**
      * Gets the java identifier for this item.
      *
      * @return The java identifier for this item.
      */
-    @NonNull String identifier();
+    String identifier();
 
     /**
      * Gets the java item id of the item.
@@ -66,6 +67,14 @@ public interface NonVanillaCustomItemData extends CustomItemData {
     int maxDamage();
 
     /**
+     * Gets the attack damage of the item.
+     * This is purely visual, and only applied to tools
+     *
+     * @return the attack damage of the item
+     */
+    int attackDamage();
+
+    /**
      * Gets the tool type of the item.
      *
      * @return the tool type of the item
@@ -73,10 +82,9 @@ public interface NonVanillaCustomItemData extends CustomItemData {
     @Nullable String toolType();
 
     /**
-     * Gets the tool tier of the item.
-     *
-     * @return the tool tier of the item
+     * @deprecated no longer used
      */
+    @Deprecated(forRemoval = true)
     @Nullable String toolTier();
 
     /**
@@ -101,25 +109,10 @@ public interface NonVanillaCustomItemData extends CustomItemData {
     @Nullable String translationString();
 
     /**
-     * Gets the repair materials of the item.
-     *
-     * @return the repair materials of the item
+     * @deprecated No longer used.
      */
+    @Deprecated(forRemoval = true)
     @Nullable Set<String> repairMaterials();
-
-    /**
-     * Gets the item's creative category, or tab id.
-     *
-     * @return the item's creative category
-     */
-    @NonNull OptionalInt creativeCategory();
-
-    /**
-     * Gets the item's creative group.
-     *
-     * @return the item's creative group
-     */
-    @Nullable String creativeGroup();
 
     /**
      * Gets if the item is a hat. This is used to determine if the item should be rendered on the player's head, and
@@ -168,21 +161,30 @@ public interface NonVanillaCustomItemData extends CustomItemData {
         return displayHandheld();
     }
 
+    /**
+     * Gets the block the item places.
+     *
+     * @return the block the item places
+     */
+    String block();
+
     static NonVanillaCustomItemData.Builder builder() {
         return GeyserApi.api().provider(NonVanillaCustomItemData.Builder.class);
     }
 
     interface Builder extends CustomItemData.Builder {
         @Override
-        Builder name(@NonNull String name);
+        Builder name(String name);
 
-        Builder identifier(@NonNull String identifier);
+        Builder identifier(String identifier);
 
         Builder javaId(@NonNegative int javaId);
 
         Builder stackSize(@NonNegative int stackSize);
 
         Builder maxDamage(int maxDamage);
+
+        Builder attackDamage(int attackDamage);
 
         Builder toolType(@Nullable String toolType);
 
@@ -196,10 +198,6 @@ public interface NonVanillaCustomItemData extends CustomItemData {
 
         Builder repairMaterials(@Nullable Set<String> repairMaterials);
 
-        Builder creativeCategory(int creativeCategory);
-
-        Builder creativeGroup(@Nullable String creativeGroup);
-
         Builder hat(boolean isHat);
 
         Builder foil(boolean isFoil);
@@ -210,6 +208,8 @@ public interface NonVanillaCustomItemData extends CustomItemData {
 
         Builder chargeable(boolean isChargeable);
 
+        Builder block(String block);
+
         /**
          * @deprecated Use {@link #displayHandheld(boolean)} instead.
          */
@@ -219,13 +219,19 @@ public interface NonVanillaCustomItemData extends CustomItemData {
         }
 
         @Override
-        Builder customItemOptions(@NonNull CustomItemOptions customItemOptions);
+        Builder creativeCategory(int creativeCategory);
 
         @Override
-        Builder displayName(@NonNull String displayName);
+        Builder creativeGroup(@Nullable String creativeGroup);
 
         @Override
-        Builder icon(@NonNull String icon);
+        Builder customItemOptions(CustomItemOptions customItemOptions);
+
+        @Override
+        Builder displayName(String displayName);
+
+        @Override
+        Builder icon(String icon);
 
         @Override
         Builder allowOffhand(boolean allowOffhand);
@@ -233,11 +239,16 @@ public interface NonVanillaCustomItemData extends CustomItemData {
         @Override
         Builder displayHandheld(boolean displayHandheld);
 
+        @Deprecated
         @Override
         Builder textureSize(int textureSize);
 
+        @Deprecated
         @Override
         Builder renderOffsets(@Nullable CustomRenderOffsets renderOffsets);
+
+        @Override
+        Builder tags(@Nullable Set<String> tags);
 
         NonVanillaCustomItemData build();
     }

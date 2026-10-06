@@ -26,7 +26,7 @@
 package org.geysermc.geyser.registry.loader;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
-import org.geysermc.geyser.util.FileUtils;
+import org.geysermc.geyser.util.AnnotationUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
@@ -62,10 +62,11 @@ public class AnnotatedRegistryLoader<R, A extends Annotation, V> implements Regi
         this.mapper = mapper;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public Map<R, V> load(String input) {
         Map<R, V> entries = new Object2ObjectOpenHashMap<>();
-        for (Class<?> clazz : FileUtils.getGeneratedClassesForAnnotation(input)) {
+        for (Class<?> clazz : AnnotationUtils.getGeneratedClassesForAnnotation(input)) {
             try {
                 entries.put(this.mapper.apply(clazz.getAnnotation(this.annotation)), (V) clazz.getConstructor().newInstance());
             } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException ex) {

@@ -25,25 +25,22 @@
 
 package org.geysermc.geyser.entity.type.living.monster;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import org.cloudburstmc.math.vector.Vector3f;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
 
 public class ZoglinEntity extends MonsterEntity {
 
-    public ZoglinEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public ZoglinEntity(EntitySpawnContext context) {
+        super(context);
+        metadata.put(EntityDataTypes.TARGET_EID, session.getPlayerEntity().geyserId());
     }
 
     public void setBaby(BooleanEntityMetadata entityMetadata) {
         boolean isBaby = entityMetadata.getPrimitiveValue();
         if (isBaby != getFlag(EntityFlag.BABY)) {
-            dirtyMetadata.put(EntityDataTypes.SCALE, isBaby ? .55f : 1f);
+            setScale(isBaby ? .55f : 1f);
             setFlag(EntityFlag.BABY, isBaby);
 
             updatePassengerOffsets();
@@ -53,16 +50,21 @@ public class ZoglinEntity extends MonsterEntity {
     @Override
     public float getBoundingBoxHeight() {
         float scale = getFlag(EntityFlag.BABY) ? 0.55f : 1f;
-        return scale * definition.height();
+        return scale * javaDefinition.height();
     }
 
     @Override
-    protected boolean canBeLeashed() {
-        return isNotLeashed();
+    public boolean canBeLeashed() {
+        return true;
     }
 
     @Override
     protected boolean isEnemy() {
+        return true;
+    }
+
+    @Override
+    public boolean useArmSwingAttack() {
         return true;
     }
 }

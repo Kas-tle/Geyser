@@ -25,35 +25,31 @@
 
 package org.geysermc.geyser.entity.type.living;
 
-import com.github.steveice10.mc.protocol.data.game.entity.player.Hand;
-import org.cloudburstmc.math.vector.Vector3f;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.inventory.GeyserItemStack;
-import org.geysermc.geyser.item.Items;
-import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
 import org.geysermc.geyser.util.InteractionResult;
 import org.geysermc.geyser.util.InteractiveTag;
-
-import javax.annotation.Nonnull;
-import java.util.UUID;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
 
 public class TadpoleEntity extends AbstractFishEntity {
-    public TadpoleEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public TadpoleEntity(EntitySpawnContext context) {
+        super(context);
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractiveTag testMobInteraction(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
+    protected InteractiveTag testMobInteraction(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
         if (isFood(itemInHand)) {
             return InteractiveTag.FEED;
         }
         return super.testMobInteraction(hand, itemInHand);
     }
 
-    @Nonnull
+    @NonNull
     @Override
-    protected InteractionResult mobInteract(@Nonnull Hand hand, @Nonnull GeyserItemStack itemInHand) {
+    protected InteractionResult mobInteract(@NonNull Hand hand, @NonNull GeyserItemStack itemInHand) {
         if (isFood(itemInHand)) {
             //TODO particles
             return InteractionResult.SUCCESS;
@@ -62,6 +58,6 @@ public class TadpoleEntity extends AbstractFishEntity {
     }
 
     private boolean isFood(GeyserItemStack itemStack) {
-        return itemStack.asItem() == Items.SLIME_BALL;
+        return itemStack.is(session, ItemTag.FROG_FOOD);
     }
 }

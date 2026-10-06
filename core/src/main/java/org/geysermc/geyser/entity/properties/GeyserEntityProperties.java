@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2023 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2024 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,40 +27,36 @@ package org.geysermc.geyser.entity.properties;
 
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.cloudburstmc.nbt.NbtMap;
 import org.cloudburstmc.nbt.NbtMapBuilder;
 import org.cloudburstmc.nbt.NbtType;
-import org.geysermc.geyser.entity.properties.type.BooleanProperty;
-import org.geysermc.geyser.entity.properties.type.EnumProperty;
-import org.geysermc.geyser.entity.properties.type.FloatProperty;
-import org.geysermc.geyser.entity.properties.type.IntProperty;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityProperty;
 import org.geysermc.geyser.entity.properties.type.PropertyType;
+import org.geysermc.geyser.registry.Registries;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
 @EqualsAndHashCode
 @ToString
 public class GeyserEntityProperties {
-    private final String entityType;
-    private final List<PropertyType> properties;
-    private final Object2IntMap<String> propertyIndices;
 
-    private GeyserEntityProperties(String entityType, List<PropertyType> properties,
-            Object2IntMap<String> propertyIndices) {
-        this.entityType = entityType;
-        this.properties = properties;
-        this.propertyIndices = propertyIndices;
-    }
+    private final static Pattern ENTITY_PROPERTY_PATTERN = Pattern.compile("^[a-z0-9_.:-]*:[a-z0-9_.:-]*$");
 
-    public NbtMap toNbtMap() {
+    private ObjectArrayList<PropertyType<?, ?>> properties;
+    private Object2IntMap<String> propertyIndices;
+
+    public NbtMap toNbtMap(String entityType) {
         NbtMapBuilder mapBuilder = NbtMap.builder();
         List<NbtMap> nbtProperties = new ArrayList<>();
-        
-        for (PropertyType property : properties) {
+
+        for (PropertyType<?, ?> property : properties) {
             nbtProperties.add(property.nbtMap());
         }
         mapBuilder.putList("properties", NbtType.COMPOUND, nbtProperties);
@@ -68,12 +64,40 @@ public class GeyserEntityProperties {
         return mapBuilder.putString("type", entityType).build();
     }
 
-    public @NonNull String getEntityType() {
-        return entityType;
+    public <T> void add(String entityType, @NonNull PropertyType<T, ? extends EntityProperty> property) {
+        if (!Registries.BEDROCK_ENTITY_PROPERTIES.get().isEmpty()) {
+            throw new IllegalStateException("Cannot add properties outside the GeyserDefineEntityProperties event!");
+        }
+
+        if (properties == null || propertyIndices == null) {
+            this.properties = new ObjectArrayList<>(0);
+            this.propertyIndices = new Object2IntOpenHashMap<>(0);
+        }
+
+        if (this.properties.size() > 32) {
+            throw new IllegalArgumentException("Cannot register more than 32 properties for entity type " + entityType);
+        }
+
+        Objects.requireNonNull(property, "property cannot be null!");
+        String name = property.identifier().toString();
+        if (propertyIndices.containsKey(name)) {
+            throw new IllegalArgumentException(
+                "Property with name " + name + " already exists on builder!");
+        } else if (!ENTITY_PROPERTY_PATTERN.matcher(name).matches()) {
+            throw new IllegalArgumentException(
+                "Cannot register property with name " + name + " because property name is invalid! Must match: " + ENTITY_PROPERTY_PATTERN.pattern()
+            );
+        }
+        this.properties.add(property);
+        propertyIndices.put(name, properties.size() - 1);
     }
 
-    public @NonNull List<PropertyType> getProperties() {
-        return properties;
+    public @NonNull List<PropertyType<?, ?>> getProperties() {
+        return properties == null ? List.of() : properties;
+    }
+
+    public boolean isEmpty() {
+        return properties == null || properties.isEmpty();
     }
 
     public int getPropertyIndex(String name) {
@@ -81,86 +105,24 @@ public class GeyserEntityProperties {
     }
 
     public static class Builder {
-        private String entityType;
-        private final List<PropertyType> properties = new ArrayList<>();
-        private final Object2IntMap<String> propertyIndices = new Object2IntOpenHashMap<>();
+        private GeyserEntityProperties properties = new GeyserEntityProperties();
+        private final String identifier;
 
-        public Builder entityType(@NonNull String entityType) {
-            this.entityType = entityType;
+        public Builder(String identifier) {
+            this.identifier = identifier;
+        }
+
+        public <T> Builder add(@NonNull PropertyType<T, ? extends EntityProperty> property) {
+            Objects.requireNonNull(property, "property cannot be null!");
+            if (properties == null) {
+                properties = new GeyserEntityProperties();
+            }
+            properties.add(identifier, property);
             return this;
         }
 
-        public Builder addInt(@NonNull String name, int min, int max) {
-            if (propertyIndices.containsKey(name)) {
-                throw new IllegalArgumentException(
-                        "Property with name " + name + " already exists for entity " + entityType);
-            }
-            PropertyType property = new IntProperty(name, min, max);
-            this.properties.add(property);
-            propertyIndices.put(name, properties.size() - 1);
-            return this;
-        }
-
-        public Builder addInt(@NonNull String name) {
-            if (propertyIndices.containsKey(name)) {
-                throw new IllegalArgumentException(
-                        "Property with name " + name + " already exists for entity " + entityType);
-            }
-            PropertyType property = new IntProperty(name, Integer.MIN_VALUE, Integer.MAX_VALUE);
-            this.properties.add(property);
-            propertyIndices.put(name, properties.size() - 1);
-            return this;
-        }
-
-        public Builder addFloat(@NonNull String name, float min, float max) {
-            if (propertyIndices.containsKey(name)) {
-                throw new IllegalArgumentException(
-                        "Property with name " + name + " already exists for entity " + entityType);
-            }
-            PropertyType property = new FloatProperty(name, min, max);
-            this.properties.add(property);
-            propertyIndices.put(name, properties.size() - 1);
-            return this;
-        }
-
-        public Builder addFloat(@NonNull String name) {
-            if (propertyIndices.containsKey(name)) {
-                throw new IllegalArgumentException(
-                        "Property with name " + name + " already exists for entity " + entityType);
-            }
-            PropertyType property = new FloatProperty(name, Float.MIN_NORMAL, Float.MAX_VALUE);
-            this.properties.add(property);
-            propertyIndices.put(name, properties.size() - 1);
-            return this;
-        }
-
-        public Builder addBoolean(@NonNull String name) {
-            if (propertyIndices.containsKey(name)) {
-                throw new IllegalArgumentException(
-                        "Property with name " + name + " already exists for entity " + entityType);
-            }
-            PropertyType property = new BooleanProperty(name);
-            this.properties.add(property);
-            propertyIndices.put(name, properties.size() - 1);
-            return this;
-        }
-
-        public Builder addEnum(@NonNull String name, List<String> values) {
-            if (propertyIndices.containsKey(name)) {
-                throw new IllegalArgumentException(
-                        "Property with name " + name + " already exists for entity " + entityType);
-            }
-            PropertyType property = new EnumProperty(name, values);
-            this.properties.add(property);
-            propertyIndices.put(name, properties.size() - 1);
-            return this;
-        }
-
-        public GeyserEntityProperties build() {
-            if (entityType == null) {
-                throw new IllegalArgumentException("Entity type must be set");
-            }
-            return new GeyserEntityProperties(entityType, properties, propertyIndices);
+        public @NonNull GeyserEntityProperties build() {
+            return properties;
         }
     }
 }

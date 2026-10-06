@@ -25,20 +25,18 @@
 
 package org.geysermc.geyser.entity.type.living.animal;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
-import org.geysermc.geyser.entity.EntityDefinition;
-import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.item.type.Item;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
+import org.geysermc.geyser.session.cache.tags.Tag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.BooleanEntityMetadata;
 
 public class TurtleEntity extends AnimalEntity {
 
-    public TurtleEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public TurtleEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setPregnant(BooleanEntityMetadata entityMetadata) {
@@ -50,12 +48,24 @@ public class TurtleEntity extends AnimalEntity {
     }
 
     @Override
-    public boolean canEat(Item item) {
-        return item == Items.SEAGRASS;
+    @Nullable
+    protected Tag<Item> getFoodTag() {
+        return ItemTag.TURTLE_FOOD;
     }
 
     @Override
-    protected boolean canBeLeashed() {
+    protected float getAdultSize() {
+        return super.getAdultSize() * 0.7f;
+    }
+
+    @Override
+    protected float getBabySize() {
+        // 0.3f is Java scale, plus Bedrock difference
+        return 0.3f * 0.5f;
+    }
+
+    @Override
+    public boolean canBeLeashed() {
         return false;
     }
 }

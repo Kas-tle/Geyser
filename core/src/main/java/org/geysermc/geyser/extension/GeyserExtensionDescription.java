@@ -31,6 +31,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.geysermc.geyser.api.extension.ExtensionDescription;
 import org.geysermc.geyser.api.extension.exception.InvalidDescriptionException;
 import org.geysermc.geyser.text.GeyserLocale;
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.CustomClassLoaderConstructor;
 
@@ -42,13 +43,14 @@ import java.util.regex.Pattern;
 public record GeyserExtensionDescription(@NonNull String id,
                                          @NonNull String name,
                                          @NonNull String main,
+                                         int humanApiVersion,
                                          int majorApiVersion,
                                          int minorApiVersion,
-                                         int patchApiVersion,
                                          @NonNull String version,
-                                         @NonNull List<String> authors) implements ExtensionDescription {
+                                         @NonNull List<String> authors,
+                                         @NonNull Map<String, Dependency> dependencies) implements ExtensionDescription {
 
-    private static final Yaml YAML = new Yaml(new CustomClassLoaderConstructor(Source.class.getClassLoader()));
+    private static final Yaml YAML = new Yaml(new CustomClassLoaderConstructor(Source.class.getClassLoader(), new LoaderOptions()));
 
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9-_]{0,63}");
     public static final Pattern NAME_PATTERN = Pattern.compile("^[A-Za-z_.-]+$");
@@ -81,9 +83,9 @@ public record GeyserExtensionDescription(@NonNull String id,
             throw new InvalidDescriptionException(GeyserLocale.getLocaleStringLog("geyser.extensions.load.failed_api_format", name, apiVersion));
         }
         String[] api = apiVersion.split("\\.");
-        int majorApi = Integer.parseUnsignedInt(api[0]);
-        int minorApi = Integer.parseUnsignedInt(api[1]);
-        int patchApi = Integer.parseUnsignedInt(api[2]);
+        int humanApi = Integer.parseUnsignedInt(api[0]);
+        int majorApi = Integer.parseUnsignedInt(api[1]);
+        int minorApi = Integer.parseUnsignedInt(api[2]);
 
         List<String> authors = new ArrayList<>();
         if (source.author != null) {
@@ -93,7 +95,12 @@ public record GeyserExtensionDescription(@NonNull String id,
             authors.addAll(source.authors);
         }
 
-        return new GeyserExtensionDescription(id, name, main, majorApi, minorApi, patchApi, version, authors);
+        Map<String, Dependency> dependencies = new LinkedHashMap<>();
+        if (source.dependencies != null) {
+            dependencies.putAll(source.dependencies);
+        }
+
+        return new GeyserExtensionDescription(id, name, main, humanApi, majorApi, minorApi, version, authors, dependencies);
     }
 
     @NonNull
@@ -115,5 +122,17 @@ public record GeyserExtensionDescription(@NonNull String id,
         String version;
         String author;
         List<String> authors;
+        Map<String, Dependency> dependencies;
+    }
+
+    @Getter
+    @Setter
+    public static class Dependency {
+        boolean required = true; // Defaults to true
+        LoadOrder load = LoadOrder.BEFORE; // Defaults to ensure the dependency loads before this extension
+    }
+
+    public enum LoadOrder {
+        BEFORE, AFTER
     }
 }

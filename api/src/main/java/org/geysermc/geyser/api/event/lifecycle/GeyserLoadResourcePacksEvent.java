@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,16 +25,14 @@
 
 package org.geysermc.geyser.api.event.lifecycle;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.geysermc.event.Event;
 
 import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Called when resource packs are loaded within Geyser.
- *
- * @param resourcePacks a mutable list of the currently listed resource packs
+ * @deprecated Use the {@link GeyserDefineResourcePacksEvent} instead.
  */
-public record GeyserLoadResourcePacksEvent(@NonNull List<Path> resourcePacks) implements Event {
+@Deprecated
+public record GeyserLoadResourcePacksEvent(List<Path> resourcePacks) implements Event {
 }

@@ -26,47 +26,53 @@
 package org.geysermc.geyser.util;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.ints.IntLists;
 import lombok.experimental.UtilityClass;
 import org.cloudburstmc.math.GenericMath;
 import org.cloudburstmc.math.vector.Vector2i;
 import org.cloudburstmc.math.vector.Vector3i;
-import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition;
 import org.cloudburstmc.protocol.bedrock.packet.LevelChunkPacket;
 import org.cloudburstmc.protocol.bedrock.packet.NetworkChunkPublisherUpdatePacket;
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket;
 import org.geysermc.geyser.entity.type.ItemFrameEntity;
 import org.geysermc.geyser.level.BedrockDimension;
 import org.geysermc.geyser.level.JavaDimension;
-import org.geysermc.geyser.level.block.BlockStateValues;
+import org.geysermc.geyser.level.block.Blocks;
+import org.geysermc.geyser.level.block.type.BlockState;
 import org.geysermc.geyser.level.chunk.BlockStorage;
 import org.geysermc.geyser.level.chunk.GeyserChunkSection;
 import org.geysermc.geyser.level.chunk.bitarray.SingletonBitArray;
-import org.geysermc.geyser.registry.BlockRegistries;
 import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.session.cache.SkullCache;
+import org.geysermc.geyser.session.cache.registry.JavaRegistries;
 import org.geysermc.geyser.text.GeyserLocale;
-import org.geysermc.geyser.translator.level.block.entity.BedrockOnlyBlockEntity;
 
-import static org.geysermc.geyser.level.block.BlockStateValues.JAVA_AIR_ID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @UtilityClass
 public class ChunkUtils {
-    /**
-     * An empty subchunk.
-     */
-    public static final byte[] SERIALIZED_CHUNK_DATA;
+
+    private static final boolean SHOW_CHUNK_HEIGHT_WARNING_LOGS = Boolean.parseBoolean(System.getProperty("Geyser.ShowChunkHeightWarningLogs", "true"));
+
     public static final byte[] EMPTY_BIOME_DATA;
+    public static final BlockStorage[] EMPTY_BLOCK_STORAGE;
+    public static final int EMPTY_CHUNK_SECTION_SIZE;
+    private static final ConcurrentHashMap<Integer, byte[]> EMPTY_CHUNK_PAYLOAD_CACHE = new ConcurrentHashMap<>(3);
 
     static {
+        EMPTY_BLOCK_STORAGE = new BlockStorage[0];
+
         ByteBuf byteBuf = Unpooled.buffer();
         try {
-            new GeyserChunkSection(new BlockStorage[0], 0)
+            new GeyserChunkSection(EMPTY_BLOCK_STORAGE, 0)
                     .writeToNetwork(byteBuf);
-            SERIALIZED_CHUNK_DATA = new byte[byteBuf.readableBytes()];
-            byteBuf.readBytes(SERIALIZED_CHUNK_DATA);
+
+            byte[] emptyChunkData = new byte[byteBuf.readableBytes()];
+            byteBuf.readBytes(emptyChunkData);
+
+            EMPTY_CHUNK_SECTION_SIZE = emptyChunkData.length;
+
+            emptyChunkData = null;
         } finally {
             byteBuf.release();
         }
@@ -96,11 +102,18 @@ public class ChunkUtils {
             chunkPublisherUpdatePacket.setPosition(position);
             // Mitigates chunks not loading on 1.17.1 Paper and 1.19.3 Fabric. As of Bedrock 1.19.60.
             // https://github.com/GeyserMC/Geyser/issues/3490
-            chunkPublisherUpdatePacket.setRadius(GenericMath.ceil((session.getServerRenderDistance() + 1) * MathUtils.SQRT_OF_TWO) << 4);
+            chunkPublisherUpdatePacket.setRadius(squareToCircle(session.getServerRenderDistance()) << 4);
             session.sendUpstreamPacket(chunkPublisherUpdatePacket);
 
             session.setLastChunkPosition(newChunkPos);
         }
+    }
+
+    /**
+     * Converts a Java render distance number to the equivalent in Bedrock.
+     */
+    public static int squareToCircle(int renderDistance) {
+        return GenericMath.ceil((renderDistance + 1) * MathUtils.SQRT_OF_TWO);
     }
 
     /**
@@ -111,18 +124,30 @@ public class ChunkUtils {
      * @param position the position of the block
      */
     public static void updateBlock(GeyserSession session, int blockState, Vector3i position) {
-        updateBlockClientSide(session, blockState, position);
+        updateBlockClientSide(session, BlockState.of(blockState), position);
         session.getChunkCache().updateBlock(position.getX(), position.getY(), position.getZ(), blockState);
+    }
+
+    /**
+     * Sends a block update to the Bedrock client. If the platform does not have an integrated world manager, this also
+     * adds that block to the cache.
+     * @param session the Bedrock session to send/register the block to
+     * @param blockState the Java block state of the block
+     * @param position the position of the block
+     */
+    public static void updateBlock(GeyserSession session, BlockState blockState, Vector3i position) {
+        updateBlockClientSide(session, blockState, position);
+        session.getChunkCache().updateBlock(position.getX(), position.getY(), position.getZ(), blockState.javaId());
     }
 
     /**
      * Updates a block, but client-side only.
      */
-    public static void updateBlockClientSide(GeyserSession session, int blockState, Vector3i position) {
+    public static void updateBlockClientSide(GeyserSession session, BlockState blockState, Vector3i position) {
         // Checks for item frames so they aren't tripped up and removed
         ItemFrameEntity itemFrameEntity = ItemFrameEntity.getItemFrameEntity(session, position);
         if (itemFrameEntity != null) {
-            if (blockState == JAVA_AIR_ID) { // Item frame is still present and no block overrides that; refresh it
+            if (blockState.is(Blocks.AIR)) { // Item frame is still present and no block overrides that; refresh it
                 itemFrameEntity.updateBlock(true);
                 // Still update the chunk cache with the new block if updateBlock is called
                 return;
@@ -130,113 +155,38 @@ public class ChunkUtils {
             // Otherwise, let's still store our reference to the item frame, but let the new block take precedence for now
         }
 
-        BlockDefinition definition = session.getBlockMappings().getBedrockBlock(blockState);
-
-        int skullVariant = BlockStateValues.getSkullVariant(blockState);
-        if (skullVariant == -1) {
-            // Skull is gone
-            session.getSkullCache().removeSkull(position);
-        } else if (skullVariant == 3) {
-            // The changed block was a player skull so check if a custom block was defined for this skull
-            SkullCache.Skull skull = session.getSkullCache().updateSkull(position, blockState);
-            if (skull != null && skull.getBlockDefinition() != null) {
-                definition = skull.getBlockDefinition();
-            }
-        }
-
-        // Prevent moving_piston from being placed
-        // It's used for extending piston heads, but it isn't needed on Bedrock and causes pistons to flicker
-        if (!BlockStateValues.isMovingPiston(blockState)) {
-            UpdateBlockPacket updateBlockPacket = new UpdateBlockPacket();
-            updateBlockPacket.setDataLayer(0);
-            updateBlockPacket.setBlockPosition(position);
-            updateBlockPacket.setDefinition(definition);
-            updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NEIGHBORS);
-            updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NETWORK);
-            session.sendUpstreamPacket(updateBlockPacket);
-
-            UpdateBlockPacket waterPacket = new UpdateBlockPacket();
-            waterPacket.setDataLayer(1);
-            waterPacket.setBlockPosition(position);
-            if (BlockRegistries.WATERLOGGED.get().get(blockState)) {
-                waterPacket.setDefinition(session.getBlockMappings().getBedrockWater());
-            } else {
-                waterPacket.setDefinition(session.getBlockMappings().getBedrockAir());
-            }
-            session.sendUpstreamPacket(waterPacket);
-        }
-
-        // Extended collision boxes for custom blocks
-        if (!session.getBlockMappings().getExtendedCollisionBoxes().isEmpty()) {
-            int aboveBlock = session.getGeyser().getWorldManager().getBlockAt(session, position.getX(), position.getY() + 1, position.getZ());
-            BlockDefinition aboveBedrockExtendedCollisionDefinition = session.getBlockMappings().getExtendedCollisionBoxes().get(blockState);
-            int belowBlock = session.getGeyser().getWorldManager().getBlockAt(session, position.getX(), position.getY() - 1, position.getZ());
-            BlockDefinition belowBedrockExtendedCollisionDefinition = session.getBlockMappings().getExtendedCollisionBoxes().get(belowBlock);
-            if (belowBedrockExtendedCollisionDefinition != null && blockState == BlockStateValues.JAVA_AIR_ID) {
-                UpdateBlockPacket updateBlockPacket = new UpdateBlockPacket();
-                updateBlockPacket.setDataLayer(0);
-                updateBlockPacket.setBlockPosition(position);
-                updateBlockPacket.setDefinition(belowBedrockExtendedCollisionDefinition);
-                updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NETWORK);
-                session.sendUpstreamPacket(updateBlockPacket);
-            } else if (aboveBedrockExtendedCollisionDefinition != null && aboveBlock == BlockStateValues.JAVA_AIR_ID) {
-                UpdateBlockPacket updateBlockPacket = new UpdateBlockPacket();
-                updateBlockPacket.setDataLayer(0);
-                updateBlockPacket.setBlockPosition(position.add(0, 1, 0));
-                updateBlockPacket.setDefinition(aboveBedrockExtendedCollisionDefinition);
-                updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NETWORK);
-                session.sendUpstreamPacket(updateBlockPacket);
-            } else if (aboveBlock == BlockStateValues.JAVA_AIR_ID) {
-                UpdateBlockPacket updateBlockPacket = new UpdateBlockPacket();
-                updateBlockPacket.setDataLayer(0);
-                updateBlockPacket.setBlockPosition(position.add(0, 1, 0));
-                updateBlockPacket.setDefinition(session.getBlockMappings().getBedrockAir());
-                updateBlockPacket.getFlags().add(UpdateBlockPacket.Flag.NETWORK);
-                session.sendUpstreamPacket(updateBlockPacket);
-            }
-        }
-
-        BlockStateValues.getLecternBookStates().handleBlockChange(session, blockState, position);
-
-        // Iterates through all Bedrock-only block entity translators and determines if a manual block entity packet
-        // needs to be sent
-        for (BedrockOnlyBlockEntity bedrockOnlyBlockEntity : BlockEntityUtils.BEDROCK_ONLY_BLOCK_ENTITIES) {
-            if (bedrockOnlyBlockEntity.isBlock(blockState)) {
-                // Flower pots are block entities only in Bedrock and are not updated anywhere else like note blocks
-                bedrockOnlyBlockEntity.updateBlock(session, blockState, position);
-                break; //No block will be a part of two classes
-            }
-        }
+        blockState.block().updateBlock(session, blockState, position);
     }
 
     public static void sendEmptyChunk(GeyserSession session, int chunkX, int chunkZ, boolean forceUpdate) {
-        BedrockDimension bedrockDimension = session.getChunkCache().getBedrockDimension();
+        BedrockDimension bedrockDimension = session.getBedrockDimension();
         int bedrockSubChunkCount = bedrockDimension.height() >> 4;
 
-        byte[] payload;
-        // Allocate output buffer
-        ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer(ChunkUtils.EMPTY_BIOME_DATA.length * bedrockSubChunkCount + 1); // Consists only of biome data and border blocks
-        try {
-            byteBuf.writeBytes(EMPTY_BIOME_DATA);
-            for (int i = 1; i < bedrockSubChunkCount; i++) {
-                byteBuf.writeByte((127 << 1) | 1);
+        byte[] payload = EMPTY_CHUNK_PAYLOAD_CACHE.computeIfAbsent(bedrockSubChunkCount, subChunkCount -> {
+            int biomeLength = EMPTY_BIOME_DATA.length;
+            int totalLength = biomeLength + subChunkCount;
+            byte[] data = new byte[totalLength];
+            // Copy biome data
+            System.arraycopy(EMPTY_BIOME_DATA, 0, data, 0, biomeLength);
+            // Marker byte (carry previous biome forward)
+            // The byte written here is a header that says to carry on the biome data from the previous chunk
+            byte marker = (byte) ((127 << 1) | 1);
+            // Fill marker bytes
+            for (int i = 0; i < subChunkCount - 1; i++) {
+                data[biomeLength + i] = marker;
             }
+            data[totalLength - 1] = 0; // Border blocks - Edu edition only
+            return data;
+        });
 
-            byteBuf.writeByte(0); // Border blocks - Edu edition only
-
-            payload = new byte[byteBuf.readableBytes()];
-            byteBuf.readBytes(payload);
-
-            LevelChunkPacket data = new LevelChunkPacket();
-            data.setChunkX(chunkX);
-            data.setChunkZ(chunkZ);
-            data.setSubChunksLength(0);
-            data.setData(Unpooled.wrappedBuffer(payload));
-            data.setCachingEnabled(false);
-            session.sendUpstreamPacket(data);
-        } finally {
-            byteBuf.release();
-        }
+        LevelChunkPacket data = new LevelChunkPacket();
+        data.setDimension(bedrockDimension.bedrockId());
+        data.setChunkX(chunkX);
+        data.setChunkZ(chunkZ);
+        data.setSubChunksLength(0);
+        data.setData(Unpooled.wrappedBuffer(payload));
+        data.setCachingEnabled(false);
+        session.sendUpstreamPacket(data);
 
         if (forceUpdate) {
             Vector3i pos = Vector3i.from(chunkX << 4, 80, chunkZ << 4);
@@ -263,32 +213,23 @@ public class ChunkUtils {
      * This must be done after the player has switched dimensions so we know what their dimension is
      */
     public static void loadDimension(GeyserSession session) {
-        JavaDimension dimension = session.getDimensions().get(session.getDimension());
-        session.setDimensionType(dimension);
+        JavaDimension dimension = session.getDimensionType();
         int minY = dimension.minY();
-        int maxY = dimension.maxY();
+        int height = dimension.height();
+        int maxY = minY + height;
 
-        if (minY % 16 != 0) {
-            throw new RuntimeException("Minimum Y must be a multiple of 16!");
-        }
-        if (maxY % 16 != 0) {
-            throw new RuntimeException("Maximum Y must be a multiple of 16!");
-        }
-
-        BedrockDimension bedrockDimension = session.getChunkCache().getBedrockDimension();
+        BedrockDimension bedrockDimension = session.getBedrockDimension();
         // Yell in the console if the world height is too height in the current scenario
         // The constraints change depending on if the player is in the overworld or not, and if experimental height is enabled
         // (Ignore this for the Nether. We can't change that at the moment without the workaround. :/ )
-        if (minY < bedrockDimension.minY() || (bedrockDimension.doUpperHeightWarn() && maxY > bedrockDimension.height())) {
+        if (SHOW_CHUNK_HEIGHT_WARNING_LOGS && (minY < bedrockDimension.minY() || (bedrockDimension.doUpperHeightWarn() && maxY > bedrockDimension.maxY()))) {
             session.getGeyser().getLogger().warning(GeyserLocale.getLocaleStringLog("geyser.network.translator.chunk.out_of_bounds",
                     String.valueOf(bedrockDimension.minY()),
-                    String.valueOf(bedrockDimension.height()),
-                    session.getDimension()));
+                    String.valueOf(bedrockDimension.maxY()),
+                    session.getRegistryCache().registry(JavaRegistries.DIMENSION_TYPE).byValue(session.getDimensionType())));
         }
 
         session.getChunkCache().setMinY(minY);
-        session.getChunkCache().setHeightY(maxY);
-
-        session.getWorldBorder().setWorldCoordinateScale(dimension.worldCoordinateScale());
+        session.getChunkCache().setHeightY(height);
     }
 }

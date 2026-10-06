@@ -25,12 +25,11 @@
 
 package org.geysermc.geyser.registry.type;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.gson.annotations.SerializedName;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 import lombok.ToString;
 import lombok.With;
 
@@ -40,19 +39,17 @@ import lombok.With;
 @ToString
 @EqualsAndHashCode
 @Getter
-@Setter
 @With
 @NoArgsConstructor
 @AllArgsConstructor
 public class GeyserMappingItem {
-    @JsonProperty("bedrock_identifier") String bedrockIdentifier;
-    @JsonProperty("bedrock_data") int bedrockData;
+    @SerializedName("bedrock_identifier") String bedrockIdentifier;
+    @SerializedName("bedrock_data") int bedrockData;
     Integer firstBlockRuntimeId;
     Integer lastBlockRuntimeId;
-    @JsonProperty("tool_type") String toolType;
-    @JsonProperty("tool_tier") String toolTier;
-    @JsonProperty("armor_type") String armorType;
-    @JsonProperty("protection_value") int protectionValue;
-    @JsonProperty("is_edible") boolean edible = false;
-    @JsonProperty("is_entity_placer") boolean entityPlacer = false;
+    @SerializedName("is_entity_placer") boolean entityPlacer = false;
+    /**
+     * Burn duration in Java ticks.
+     */
+    @SerializedName("fuel_duration") int fuelDuration;
 }

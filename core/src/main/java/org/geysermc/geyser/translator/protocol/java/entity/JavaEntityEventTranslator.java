@@ -25,28 +25,40 @@
 
 package org.geysermc.geyser.translator.protocol.java.entity;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.entity.ClientboundEntityEventPacket;
 import org.cloudburstmc.protocol.bedrock.data.ParticleType;
 import org.cloudburstmc.protocol.bedrock.data.SoundEvent;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType;
-import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
+import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerId;
 import org.cloudburstmc.protocol.bedrock.packet.EntityEventPacket;
+import org.cloudburstmc.protocol.bedrock.packet.InventoryContentPacket;
 import org.cloudburstmc.protocol.bedrock.packet.LevelEventPacket;
-import org.cloudburstmc.protocol.bedrock.packet.LevelSoundEvent2Packet;
+import org.cloudburstmc.protocol.bedrock.packet.LevelSoundEventPacket;
 import org.cloudburstmc.protocol.bedrock.packet.PlaySoundPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityDataPacket;
 import org.cloudburstmc.protocol.bedrock.packet.SetEntityMotionPacket;
-import org.geysermc.geyser.entity.EntityDefinitions;
+import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.entity.VanillaEntities;
 import org.geysermc.geyser.entity.type.Entity;
 import org.geysermc.geyser.entity.type.EvokerFangsEntity;
 import org.geysermc.geyser.entity.type.FishingHookEntity;
 import org.geysermc.geyser.entity.type.LivingEntity;
+import org.geysermc.geyser.entity.type.ThrowableEggEntity;
+import org.geysermc.geyser.entity.type.living.animal.ArmadilloEntity;
+import org.geysermc.geyser.entity.type.living.monster.CreakingEntity;
 import org.geysermc.geyser.entity.type.living.monster.WardenEntity;
+import org.geysermc.geyser.entity.type.player.SessionPlayerEntity;
+import org.geysermc.geyser.item.Items;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.geyser.translator.item.ItemTranslator;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.geyser.util.InventoryUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.type.EntityType;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundEntityEventPacket;
 
+import java.util.Collections;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Translator(packet = ClientboundEntityEventPacket.class)
@@ -59,7 +71,7 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
             return;
 
         EntityEventPacket entityEventPacket = new EntityEventPacket();
-        entityEventPacket.setRuntimeEntityId(entity.getGeyserId());
+        entityEventPacket.setRuntimeEntityId(entity.geyserId());
         switch (packet.getEvent()) {
             case PLAYER_ENABLE_REDUCED_DEBUG:
                 session.setReducedDebugInfo(true);
@@ -67,41 +79,41 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
             case PLAYER_DISABLE_REDUCED_DEBUG:
                 session.setReducedDebugInfo(false);
                 return;
-            case PLAYER_OP_PERMISSION_LEVEL_0:
+            case PLAYER_SET_NO_PERMISSIONS:
                 session.setOpPermissionLevel(0);
                 session.sendAdventureSettings();
                 return;
-            case PLAYER_OP_PERMISSION_LEVEL_1:
+            case PLAYER_SET_MODERATOR:
                 session.setOpPermissionLevel(1);
                 session.sendAdventureSettings();
                 return;
-            case PLAYER_OP_PERMISSION_LEVEL_2:
+            case PLAYER_SET_GAMEMASTER:
                 session.setOpPermissionLevel(2);
                 session.sendAdventureSettings();
                 return;
-            case PLAYER_OP_PERMISSION_LEVEL_3:
+            case PLAYER_SET_ADMIN:
                 session.setOpPermissionLevel(3);
                 session.sendAdventureSettings();
                 return;
-            case PLAYER_OP_PERMISSION_LEVEL_4:
+            case PLAYER_SET_OWNER:
                 session.setOpPermissionLevel(4);
                 session.sendAdventureSettings();
                 return;
 
             case LIVING_DEATH:
                 entityEventPacket.setType(EntityEventType.DEATH);
-                if (entity.getDefinition() == EntityDefinitions.EGG) {
+                if (entity instanceof ThrowableEggEntity egg) {
                     LevelEventPacket particlePacket = new LevelEventPacket();
                     particlePacket.setType(ParticleType.ICON_CRACK);
-                    particlePacket.setData(session.getItemMappings().getStoredItems().egg().getBedrockDefinition().getRuntimeId() << 16);
-                    particlePacket.setPosition(entity.getPosition());
+                    particlePacket.setData(ItemTranslator.getBedrockItemDefinition(session, egg.getItemStack()).getRuntimeId() << 16);
+                    particlePacket.setPosition(entity.bedrockPosition());
                     for (int i = 0; i < 6; i++) {
                         session.sendUpstreamPacket(particlePacket);
                     }
-                } else if (entity.getDefinition() == EntityDefinitions.SNOWBALL) {
+                } else if (entity.getJavaDefinition() == VanillaEntities.SNOWBALL) {
                     LevelEventPacket particlePacket = new LevelEventPacket();
                     particlePacket.setType(ParticleType.SNOWBALL_POOF);
-                    particlePacket.setPosition(entity.getPosition());
+                    particlePacket.setPosition(entity.bedrockPosition());
                     for (int i = 0; i < 8; i++) {
                         session.sendUpstreamPacket(particlePacket);
                     }
@@ -110,20 +122,27 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
             case WOLF_SHAKE_WATER:
                 entityEventPacket.setType(EntityEventType.SHAKE_WETNESS);
                 break;
+            case WOLF_SHAKE_WATER_STOP:
+                entityEventPacket.setType(EntityEventType.SHAKE_WETNESS_STOP);
+                break;
             case PLAYER_FINISH_USING_ITEM:
+                if (entity instanceof SessionPlayerEntity) {
+                    entity.setFlag(EntityFlag.USING_ITEM, false);
+                }
+
                 entityEventPacket.setType(EntityEventType.USE_ITEM);
                 break;
             case FISHING_HOOK_PULL_PLAYER:
                 // Player is pulled from a fishing rod
                 // The physics of this are clientside on Java
                 FishingHookEntity fishingHook = (FishingHookEntity) entity;
-                if (fishingHook.getBedrockTargetId() == session.getPlayerEntity().getGeyserId()) {
+                if (fishingHook.getBedrockTargetId() == session.getPlayerEntity().geyserId()) {
                     Entity hookOwner = session.getEntityCache().getEntityByGeyserId(fishingHook.getBedrockOwnerId());
                     if (hookOwner != null) {
                         // https://minecraft.wiki/w/Fishing_Rod#Hooking_mobs_and_other_entities
                         SetEntityMotionPacket motionPacket = new SetEntityMotionPacket();
-                        motionPacket.setRuntimeEntityId(session.getPlayerEntity().getGeyserId());
-                        motionPacket.setMotion(hookOwner.getPosition().sub(session.getPlayerEntity().getPosition()).mul(0.1f));
+                        motionPacket.setRuntimeEntityId(session.getPlayerEntity().geyserId());
+                        motionPacket.setMotion(hookOwner.position().sub(session.getPlayerEntity().position()).mul(0.1f));
                         session.sendUpstreamPacket(motionPacket);
                     }
                 }
@@ -135,9 +154,9 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
                 entityEventPacket.setType(EntityEventType.TAME_SUCCEEDED);
                 break;
             case ZOMBIE_VILLAGER_CURE: // Played when a zombie bites the golden apple
-                LevelSoundEvent2Packet soundPacket = new LevelSoundEvent2Packet();
+                LevelSoundEventPacket soundPacket = new LevelSoundEventPacket();
                 soundPacket.setSound(SoundEvent.REMEDY);
-                soundPacket.setPosition(entity.getPosition());
+                soundPacket.setPosition(entity.bedrockPosition());
                 soundPacket.setExtraData(-1);
                 soundPacket.setIdentifier("");
                 soundPacket.setRelativeVolumeDisabled(false);
@@ -154,17 +173,36 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
                 entityEventPacket.setType(EntityEventType.WITCH_HAT_MAGIC); //TODO: CHECK
                 break;
             case TOTEM_OF_UNDYING_MAKE_SOUND:
+                // Bedrock will not play the spinning animation without the item in the hand o.o
+                // Fixes https://github.com/GeyserMC/Geyser/issues/2446
+                boolean totemItemWorkaround = !session.getPlayerInventory().isHolding(Items.TOTEM_OF_UNDYING);
+                if (totemItemWorkaround) {
+                    InventoryContentPacket offhandPacket = new InventoryContentPacket();
+                    offhandPacket.setContainerId(ContainerId.OFFHAND);
+                    offhandPacket.setContents(Collections.singletonList(InventoryUtils.getTotemOfUndying().apply(session.getUpstream().getProtocolVersion())));
+                    session.sendUpstreamPacket(offhandPacket);
+                }
+
                 entityEventPacket.setType(EntityEventType.CONSUME_TOTEM);
 
                 PlaySoundPacket playSoundPacket = new PlaySoundPacket();
                 playSoundPacket.setSound("random.totem");
-                playSoundPacket.setPosition(entity.getPosition());
+                playSoundPacket.setPosition(entity.bedrockPosition());
                 playSoundPacket.setVolume(1.0F);
                 playSoundPacket.setPitch(1.0F + (ThreadLocalRandom.current().nextFloat() * 0.1F) - 0.05F);
                 session.sendUpstreamPacket(playSoundPacket);
-                break;
+
+                // Sent here early to ensure we have the totem in our hand
+                session.sendUpstreamPacket(entityEventPacket);
+
+                if (totemItemWorkaround) {
+                    // Reset the item again
+                    session.getPlayerInventoryHolder().updateSlot(45);
+                }
+
+                return;
             case SHEEP_GRAZE_OR_TNT_CART_EXPLODE:
-                if (entity.getDefinition() == EntityDefinitions.SHEEP) {
+                if (entity.getJavaDefinition() == VanillaEntities.SHEEP) {
                     entityEventPacket.setType(EntityEventType.EAT_GRASS);
                 } else {
                     entityEventPacket.setType(EntityEventType.PRIME_TNT_MINECART);
@@ -182,28 +220,28 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
             case VILLAGER_SWEAT:
                 LevelEventPacket levelEventPacket = new LevelEventPacket();
                 levelEventPacket.setType(ParticleType.WATER_SPLASH);
-                levelEventPacket.setPosition(entity.getPosition().up(entity.getDefinition().height()));
+                levelEventPacket.setPosition(entity.position().up(entity.getBoundingBoxHeight()));
                 session.sendUpstreamPacket(levelEventPacket);
                 return;
             case IRON_GOLEM_EMPTY_HAND:
                 entityEventPacket.setType(EntityEventType.GOLEM_FLOWER_WITHDRAW);
                 break;
             case ATTACK:
-                if (entity.getDefinition() == EntityDefinitions.IRON_GOLEM || entity.getDefinition() == EntityDefinitions.EVOKER_FANGS
-                        || entity.getDefinition() == EntityDefinitions.WARDEN) {
+                if (entity.getJavaDefinition().is(EntityType.IRON_GOLEM) || entity.getJavaDefinition().is(EntityType.EVOKER_FANGS)
+                        || entity.getJavaDefinition().is(EntityType.WARDEN)) {
                     entityEventPacket.setType(EntityEventType.ATTACK_START);
-                    if (entity.getDefinition() == EntityDefinitions.EVOKER_FANGS) {
+                    if (entity.getJavaDefinition().is(EntityType.EVOKER_FANGS)) {
                         ((EvokerFangsEntity) entity).setAttackStarted();
                     }
                 }
                 break;
             case RABBIT_JUMP_OR_MINECART_SPAWNER_DELAY_RESET:
-                if (entity.getDefinition() == EntityDefinitions.RABBIT) {
+                if (entity.getJavaDefinition() == VanillaEntities.RABBIT) {
                     // This doesn't match vanilla Bedrock behavior but I'm unsure how to make it better
                     // I assume part of the problem is that Bedrock uses a duration and Java just says the rabbit is jumping
                     SetEntityDataPacket dataPacket = new SetEntityDataPacket();
                     dataPacket.getMetadata().put(EntityDataTypes.JUMP_DURATION, (byte) 3);
-                    dataPacket.setRuntimeEntityId(entity.getGeyserId());
+                    dataPacket.setRuntimeEntityId(entity.geyserId());
                     session.sendUpstreamPacket(dataPacket);
                     return;
                 }
@@ -214,32 +252,32 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
             case LIVING_EQUIPMENT_BREAK_FEET:
             case LIVING_EQUIPMENT_BREAK_MAIN_HAND:
             case LIVING_EQUIPMENT_BREAK_OFF_HAND:
-                LevelSoundEvent2Packet equipmentBreakPacket = new LevelSoundEvent2Packet();
+            case SADDLE_BREAK:
+            case LIVING_EQUIPMENT_BREAK_BODY:
+                LevelSoundEventPacket equipmentBreakPacket = new LevelSoundEventPacket();
                 equipmentBreakPacket.setSound(SoundEvent.BREAK);
-                equipmentBreakPacket.setPosition(entity.getPosition());
+                equipmentBreakPacket.setPosition(entity.bedrockPosition());
                 equipmentBreakPacket.setExtraData(-1);
                 equipmentBreakPacket.setIdentifier("");
                 session.sendUpstreamPacket(equipmentBreakPacket);
                 return;
             case PLAYER_SWAP_SAME_ITEM: // Not just used for players
                 if (entity instanceof LivingEntity livingEntity) {
-                    ItemData newMainHand = livingEntity.getOffHand();
-                    livingEntity.setOffHand(livingEntity.getHand());
-                    livingEntity.setHand(newMainHand);
+                    livingEntity.switchHands();
 
-                    livingEntity.updateMainHand(session);
-                    livingEntity.updateOffHand(session);
+                    livingEntity.updateMainHand();
+                    livingEntity.updateOffHand();
                 } else {
                     session.getGeyser().getLogger().debug("Got status message to swap hands for a non-living entity.");
                 }
                 return;
             case GOAT_LOWERING_HEAD:
-                if (entity.getDefinition() == EntityDefinitions.GOAT) {
+                if (entity.getJavaDefinition() == VanillaEntities.GOAT) {
                     entityEventPacket.setType(EntityEventType.ATTACK_START);
                 }
                 break;
             case GOAT_STOP_LOWERING_HEAD:
-                if (entity.getDefinition() == EntityDefinitions.GOAT) {
+                if (entity.getJavaDefinition() == VanillaEntities.GOAT) {
                     entityEventPacket.setType(EntityEventType.ATTACK_STOP);
                 }
                 break;
@@ -251,7 +289,7 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
                 }
                 break;
             case WARDEN_RECEIVE_SIGNAL:
-                if (entity.getDefinition() == EntityDefinitions.WARDEN) {
+                if (entity.getJavaDefinition() == VanillaEntities.WARDEN) {
                     entityEventPacket.setType(EntityEventType.VIBRATION_DETECTED);
                 }
                 break;
@@ -260,6 +298,21 @@ public class JavaEntityEventTranslator extends PacketTranslator<ClientboundEntit
                     wardenEntity.onSonicBoom();
                 }
                 break;
+            case ARMADILLO_PEEKING:
+                if (entity instanceof ArmadilloEntity armadilloEntity) {
+                    armadilloEntity.onPeeking();
+                }
+                break;
+            case SHAKE:
+                if (entity instanceof CreakingEntity creakingEntity) {
+                    creakingEntity.createParticleBeam();
+                }
+                break;
+            case SQUID_RESET_ROTATION:
+                // unused, but spams a bit
+                break;
+            default:
+                GeyserImpl.getInstance().getLogger().debug("unhandled entity event: " + packet);
         }
 
         if (entityEventPacket.getType() != null) {

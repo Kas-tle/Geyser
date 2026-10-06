@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +25,10 @@
 
 package org.geysermc.geyser.api.command;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
+import org.geysermc.geyser.api.connection.GeyserConnection;
+import org.jspecify.annotations.Nullable;
+
+import java.util.UUID;
 
 /**
  * Represents an instance capable of sending commands.
@@ -44,7 +47,7 @@ public interface CommandSource {
      *
      * @param message the message to send
      */
-    void sendMessage(@NonNull String message);
+    void sendMessage(String message);
 
     /**
      * Sends the given messages to the command source
@@ -63,6 +66,17 @@ public interface CommandSource {
      * @return true if this source is the console
      */
     boolean isConsole();
+
+    /**
+     * @return a Java UUID if this source represents a player, otherwise null
+     */
+    @Nullable UUID playerUuid();
+
+    /**
+     * @return a GeyserConnection if this source represents a Bedrock player that is connected
+     * to this Geyser instance, otherwise null
+     */
+    @Nullable GeyserConnection connection();
 
     /**
      * Returns the locale of the command source.

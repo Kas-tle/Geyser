@@ -25,7 +25,7 @@
 
 package org.geysermc.geyser.translator.protocol.java.level.border;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.level.border.ClientboundSetBorderSizePacket;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.border.ClientboundSetBorderSizePacket;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.cache.WorldBorder;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
@@ -37,10 +37,6 @@ public class JavaSetBorderSizeTranslator extends PacketTranslator<ClientboundSet
     @Override
     public void translate(GeyserSession session, ClientboundSetBorderSizePacket packet) {
         WorldBorder worldBorder = session.getWorldBorder();
-        worldBorder.setOldDiameter(packet.getSize());
-        worldBorder.setNewDiameter(packet.getSize());
-        worldBorder.setResizing(false);
-
-        worldBorder.update();
+        worldBorder.createStatic(packet.getSize());
     }
 }

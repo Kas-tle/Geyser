@@ -25,9 +25,17 @@
 
 package org.geysermc.geyser.platform.standalone.gui;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.NullConfiguration;
+import org.apache.logging.log4j.core.config.Property;
+import org.apache.logging.log4j.core.layout.PatternLayout;
+import org.apache.logging.log4j.core.pattern.PatternFormatter;
 import org.geysermc.geyser.GeyserImpl;
 import org.geysermc.geyser.GeyserLogger;
-import org.geysermc.geyser.command.GeyserCommandManager;
+import org.geysermc.geyser.command.CommandRegistry;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.text.GeyserLocale;
 
@@ -35,11 +43,16 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.text.Document;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -64,7 +77,6 @@ public class GeyserStandaloneGUI {
     private final List<Integer> ramValues = new ArrayList<>();
 
     private final DefaultTableModel playerTableModel = new DefaultTableModel();
-    private final JTable playerTable = new JTable(playerTableModel);
 
     /**
      * Create and show the Geyser-Standalone GUI
@@ -83,7 +95,8 @@ public class GeyserStandaloneGUI {
         // Remove Java UI look
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {
+        }
 
         // Show a confirm dialog on close
         frame.addWindowListener(new WindowAdapter() {
@@ -100,7 +113,7 @@ public class GeyserStandaloneGUI {
         Container cp = frame.getContentPane();
 
         // Fetch and set the icon for the frame
-        URL image = getClass().getClassLoader().getResource("icon.png");
+        URL image = getClass().getClassLoader().getResource("assets/geyser/icon.png");
         if (image != null) {
             ImageIcon icon = new ImageIcon(image);
             frame.setIconImage(icon.getImage());
@@ -158,6 +171,7 @@ public class GeyserStandaloneGUI {
         playerTableModel.addColumn(GeyserLocale.getLocaleStringLog("geyser.gui.table.ip"));
         playerTableModel.addColumn(GeyserLocale.getLocaleStringLog("geyser.gui.table.username"));
 
+        JTable playerTable = new JTable(playerTableModel);
         JScrollPane playerScrollPane = new JScrollPane(playerTable);
         rightContentPane.add(playerScrollPane);
 
@@ -180,7 +194,8 @@ public class GeyserStandaloneGUI {
         openButton.addActionListener(e -> {
             try {
                 Desktop.getDesktop().open(new File("./"));
-            } catch (IOException ignored) { }
+            } catch (IOException ignored) {
+            }
         });
         fileMenu.add(openButton);
 
@@ -244,41 +259,19 @@ public class GeyserStandaloneGUI {
     /**
      * Redirect the default io streams to the text pane
      */
-    public void redirectSystemStreams() {
-        // Setup a new output stream to forward it to the text pane
-        OutputStream out = new OutputStream() {
-            @Override
-            public void write(final int b) {
-                appendConsole(String.valueOf((char) b));
-            }
-
-            @Override
-            public void write(byte[] b, int off, int len) {
-                appendConsole(new String(b, off, len));
-            }
-
-            @Override
-            public void write(byte[] b) {
-                write(b, 0, b.length);
-            }
-        };
-
-        // Override the system output streams
-        System.setOut(new PrintStream(out, true));
-        System.setErr(new PrintStream(out, true));
-
+    public void addGuiAppender() {
+        new GUIAppender().start();
     }
 
     /**
-     * Enable the command input box.
+     * Enables the command input box.
      *
-     * @param executor the executor for running commands off the GUI thread
-     * @param commandManager the command manager to delegate commands to
+     * @param executor the executor that commands will be run on
+     * @param registry the command registry containing all current commands
      */
-    public void enableCommands(ScheduledExecutorService executor, GeyserCommandManager commandManager) {
+    public void enableCommands(ScheduledExecutorService executor, CommandRegistry registry) {
         // we don't want to block the GUI thread with the command execution
-        // todo: once cloud is used, an AsynchronousCommandExecutionCoordinator can be used to avoid this scheduler
-        commandListener.handler = cmd -> executor.schedule(() -> commandManager.runCommand(logger, cmd), 0, TimeUnit.SECONDS);
+        commandListener.dispatcher = cmd -> executor.execute(() -> registry.runCommand(logger, cmd));
         commandInput.setEnabled(true);
         commandInput.requestFocusInWindow();
     }
@@ -343,14 +336,41 @@ public class GeyserStandaloneGUI {
 
     private class CommandListener implements ActionListener {
 
-        private Consumer<String> handler;
+        private Consumer<String> dispatcher;
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            String command = commandInput.getText();
+            // the headless variant of Standalone strips trailing whitespace for us - we need to manually
+            String command = commandInput.getText().stripTrailing();
             appendConsole(command + "\n"); // show what was run in the console
-            handler.accept(command); // run the command
+            dispatcher.accept(command); // run the command
             commandInput.setText(""); // clear the input
+        }
+    }
+
+    private class GUIAppender extends AbstractAppender {
+        private static final List<PatternFormatter> FORMATTERS = PatternLayout.createPatternParser(new NullConfiguration())
+            .parse(
+                "[%d{HH:mm:ss} %style{%highlight{%level}{FATAL=red, ERROR=red, WARN=yellow bright, INFO=cyan bright, DEBUG=green, TRACE=white}}] %minecraftFormatting{%msg}%n",
+                true,
+                false,
+                false
+            );
+
+        protected GUIAppender() {
+            super("GUIAppender", null, null, false, Property.EMPTY_ARRAY);
+
+            ((Logger) LogManager.getRootLogger()).addAppender(this);
+        }
+
+        @Override
+        public void append(LogEvent event) {
+            StringBuilder formatted = new StringBuilder();
+            for (PatternFormatter formatter : FORMATTERS) {
+                formatter.format(event, formatted);
+            }
+
+            appendConsole(formatted.toString());
         }
     }
 }

@@ -25,23 +25,29 @@
 
 package org.geysermc.geyser.entity.type.living.animal;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.type.IntEntityMetadata;
-import org.cloudburstmc.math.vector.Vector3f;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityDataTypes;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityEventType;
 import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
 import org.cloudburstmc.protocol.bedrock.packet.EntityEventPacket;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.api.util.Identifier;
+import org.geysermc.geyser.entity.properties.type.BooleanProperty;
+import org.geysermc.geyser.entity.spawn.EntitySpawnContext;
 import org.geysermc.geyser.item.type.Item;
-import org.geysermc.geyser.session.GeyserSession;
-
-import java.util.UUID;
+import org.geysermc.geyser.session.cache.tags.ItemTag;
+import org.geysermc.geyser.session.cache.tags.Tag;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.ByteEntityMetadata;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.type.LongEntityMetadata;
 
 public class BeeEntity extends AnimalEntity {
 
-    public BeeEntity(GeyserSession session, int entityId, long geyserId, UUID uuid, EntityDefinition<?> definition, Vector3f position, Vector3f motion, float yaw, float pitch, float headYaw) {
-        super(session, entityId, geyserId, uuid, definition, position, motion, yaw, pitch, headYaw);
+    public static final BooleanProperty NECTAR_PROPERTY = new BooleanProperty(
+        Identifier.of("has_nectar"),
+        false
+    );
+
+    public BeeEntity(EntitySpawnContext context) {
+        super(context);
     }
 
     public void setBeeFlags(ByteEntityMetadata entityMetadata) {
@@ -55,18 +61,21 @@ public class BeeEntity extends AnimalEntity {
             session.sendUpstreamPacket(packet);
         }
         // If the bee has stung
-        dirtyMetadata.put(EntityDataTypes.MARK_VARIANT, (xd & 0x04) == 0x04 ? 1 : 0);
+        metadata.put(EntityDataTypes.MARK_VARIANT, (xd & 0x04) == 0x04 ? 1 : 0);
         // If the bee has nectar or not
-        setFlag(EntityFlag.POWERED, (xd & 0x08) == 0x08);
+        NECTAR_PROPERTY.apply(propertyManager, (xd & 0x08) == 0x08);
+        updateBedrockEntityProperties();
     }
 
-    public void setAngerTime(IntEntityMetadata entityMetadata) {
+    public void setAngerTime(LongEntityMetadata entityMetadata) {
         // Converting "anger time" to a boolean
-        setFlag(EntityFlag.ANGRY, entityMetadata.getPrimitiveValue() > 0);
+        long time = entityMetadata.getPrimitiveValue();
+        setFlag(EntityFlag.ANGRY, time > 0 && time - session.getGameTicks() > 0);
     }
 
     @Override
-    public boolean canEat(Item item) {
-        return session.getTagCache().isFlower(item);
+    @Nullable
+    protected Tag<Item> getFoodTag() {
+        return ItemTag.BEE_FOOD;
     }
 }

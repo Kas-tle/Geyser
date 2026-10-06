@@ -25,30 +25,34 @@
 
 package org.geysermc.geyser.translator.protocol.java.inventory;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.ItemStack;
-import com.github.steveice10.mc.protocol.data.game.recipe.Ingredient;
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.inventory.ClientboundContainerSetSlotPacket;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ContainerId;
 import org.cloudburstmc.protocol.bedrock.data.inventory.ItemData;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.CraftingDataType;
 import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.recipe.ShapedRecipeData;
-import org.cloudburstmc.protocol.bedrock.data.inventory.descriptor.ItemDescriptorWithCount;
+import org.cloudburstmc.protocol.bedrock.data.inventory.crafting.recipe.SmithingTransformRecipeData;
 import org.cloudburstmc.protocol.bedrock.packet.CraftingDataPacket;
 import org.cloudburstmc.protocol.bedrock.packet.InventorySlotPacket;
-import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.GeyserLogger;
 import org.geysermc.geyser.inventory.GeyserItemStack;
 import org.geysermc.geyser.inventory.Inventory;
+import org.geysermc.geyser.inventory.InventoryHolder;
 import org.geysermc.geyser.inventory.recipe.GeyserShapedRecipe;
+import org.geysermc.geyser.inventory.recipe.GeyserSmithingRecipe;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.network.bedrock.GameProtocol;
 import org.geysermc.geyser.session.GeyserSession;
-import org.geysermc.geyser.translator.inventory.InventoryTranslator;
-import org.geysermc.geyser.translator.inventory.PlayerInventoryTranslator;
-import org.geysermc.geyser.translator.inventory.item.ItemTranslator;
+import org.geysermc.geyser.translator.inventory.SmithingInventoryTranslator;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.InventoryUtils;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.recipe.display.slot.ItemStackSlotDisplay;
+import org.geysermc.mcprotocollib.protocol.data.game.recipe.display.slot.SlotDisplay;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.inventory.ClientboundContainerSetSlotPacket;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 @Translator(packet = ClientboundContainerSetSlotPacket.class)
@@ -56,80 +60,77 @@ public class JavaContainerSetSlotTranslator extends PacketTranslator<Clientbound
 
     @Override
     public void translate(GeyserSession session, ClientboundContainerSetSlotPacket packet) {
-        if (packet.getContainerId() == 255) { //cursor
-            GeyserItemStack newItem = GeyserItemStack.from(packet.getItem());
-            session.getPlayerInventory().setCursor(newItem, session);
-            InventoryUtils.updateCursor(session);
+        InventoryHolder<?> holder = InventoryUtils.getInventory(session, packet.getContainerId());
+        if (holder == null) {
             return;
         }
 
-        //TODO: support window id -2, should update player inventory
-        Inventory inventory = InventoryUtils.getInventory(session, packet.getContainerId());
-        if (inventory == null)
+        Inventory inventory = holder.inventory();
+        int slot = packet.getSlot();
+        if (slot < 0 || slot >= inventory.getSize()) {
+            GeyserLogger logger = session.getGeyser().getLogger();
+            logger.warning("Slot of ClientboundContainerSetSlotPacket sent to " + session.bedrockUsername()
+                    + " is out of bounds! Was: " + slot + " for container: " + packet.getContainerId());
+            if (logger.isDebug()) {
+                logger.debug(packet.toString());
+                logger.debug(inventory.toString());
+            }
+            // 1.19.0 behavior: the state ID will not be set due to exception
             return;
-
-        InventoryTranslator translator = session.getInventoryTranslator();
-        if (translator != null) {
-            if (session.getCraftingGridFuture() != null) {
-                session.getCraftingGridFuture().cancel(false);
-            }
-
-            int slot = packet.getSlot();
-            if (slot >= inventory.getSize()) {
-                GeyserImpl geyser = session.getGeyser();
-                geyser.getLogger().warning("ClientboundContainerSetSlotPacket sent to " + session.bedrockUsername()
-                        + " that exceeds inventory size!");
-                if (geyser.getConfig().isDebugMode()) {
-                    geyser.getLogger().debug(packet);
-                    geyser.getLogger().debug(inventory);
-                }
-                // 1.19.0 behavior: the state ID will not be set due to exception
-                return;
-            }
-
-            updateCraftingGrid(session, slot, packet.getItem(), inventory, translator);
-
-            GeyserItemStack newItem = GeyserItemStack.from(packet.getItem());
-            if (packet.getContainerId() == 0 && !(translator instanceof PlayerInventoryTranslator)) {
-                // In rare cases, the window ID can still be 0 but Java treats it as valid
-                session.getPlayerInventory().setItem(slot, newItem, session);
-                InventoryTranslator.PLAYER_INVENTORY_TRANSLATOR.updateSlot(session, session.getPlayerInventory(), slot);
-            } else {
-                inventory.setItem(slot, newItem, session);
-                translator.updateSlot(session, inventory, slot);
-            }
-
-            // Intentional behavior here below the cursor; Minecraft 1.18.1 also does this.
-            int stateId = packet.getStateId();
-            session.setEmulatePost1_16Logic(stateId > 0 || stateId != inventory.getStateId());
-            inventory.setStateId(stateId);
         }
+
+        if (holder.translator() instanceof SmithingInventoryTranslator) {
+            updateSmithingTableOutput(slot, packet.getItem(), holder);
+        } else {
+            updateCraftingGrid(slot, packet.getItem(), holder);
+        }
+
+        GeyserItemStack newItem = GeyserItemStack.from(session, packet.getItem());
+        session.getBundleCache().initialize(newItem);
+
+        holder.inventory().setItem(slot, newItem, session);
+        holder.updateSlot(slot);
+
+        // Intentional behavior here below the cursor; Minecraft 1.18.1 also does this.
+        int stateId = packet.getStateId();
+        session.setEmulatePost1_16Logic(stateId > 0 || stateId != inventory.getStateId());
+        inventory.setStateId(stateId);
     }
 
     /**
      * Checks for a changed output slot in the crafting grid, and ensures Bedrock sees the recipe.
      */
-    private static void updateCraftingGrid(GeyserSession session, int slot, ItemStack item, Inventory inventory, InventoryTranslator translator) {
+    private static void updateCraftingGrid(int slot, ItemStack item, InventoryHolder<? extends Inventory> holder) {
+        // Check if it's the crafting grid result slot.
         if (slot != 0) {
             return;
         }
-        int gridSize = translator.getGridSize();
+
+        // Check if there is any crafting grid.
+        int gridSize = holder.translator().getGridSize();
         if (gridSize == -1) {
             return;
         }
 
-        if (item == null || item.getId() == 0) {
+        GeyserSession session = holder.session();
+
+        // Only process the most recent crafting grid result, and cancel the previous one.
+        if (session.getContainerOutputFuture() != null) {
+            session.getContainerOutputFuture().cancel(false);
+        }
+
+        if (InventoryUtils.isEmpty(item)) {
             return;
         }
 
-        session.setCraftingGridFuture(session.scheduleInEventLoop(() -> {
+        session.setContainerOutputFuture(session.scheduleInEventLoop(() -> {
             int offset = gridSize == 4 ? 28 : 32;
             int gridDimensions = gridSize == 4 ? 2 : 3;
             int firstRow = -1, height = -1;
             int firstCol = -1, width = -1;
             for (int row = 0; row < gridDimensions; row++) {
                 for (int col = 0; col < gridDimensions; col++) {
-                    if (!inventory.getItem(col + (row * gridDimensions) + 1).isEmpty()) {
+                    if (!holder.inventory().getItem(col + (row * gridDimensions) + 1).isEmpty()) {
                         if (firstRow == -1) {
                             firstRow = row;
                             firstCol = col;
@@ -150,25 +151,23 @@ public class JavaContainerSetSlotTranslator extends PacketTranslator<Clientbound
             height += -firstRow + 1;
             width += -firstCol + 1;
 
-            if (InventoryUtils.getValidRecipe(session, item, inventory::getItem, gridDimensions, firstRow,
+            if (InventoryUtils.getValidRecipe(session, item, holder.inventory()::getItem, gridDimensions, firstRow,
                     height, firstCol, width) != null) {
                 // Recipe is already present on the client; don't send packet
                 return;
             }
 
-            UUID uuid = UUID.randomUUID();
             int newRecipeId = session.getLastRecipeNetId().incrementAndGet();
 
             ItemData[] ingredients = new ItemData[height * width];
             //construct ingredient list and clear slots on client
-            Ingredient[] javaIngredients = new Ingredient[height * width];
+            List<SlotDisplay> javaIngredients = new ArrayList<>(height * width);
             int index = 0;
             for (int row = firstRow; row < height + firstRow; row++) {
                 for (int col = firstCol; col < width + firstCol; col++) {
-                    GeyserItemStack geyserItemStack = inventory.getItem(col + (row * gridDimensions) + 1);
+                    GeyserItemStack geyserItemStack = holder.inventory().getItem(col + (row * gridDimensions) + 1);
                     ingredients[index] = geyserItemStack.getItemData(session);
-                    ItemStack[] itemStacks = new ItemStack[] {geyserItemStack.isEmpty() ? null : geyserItemStack.getItemStack(1)};
-                    javaIngredients[index] = new Ingredient(itemStacks);
+                    javaIngredients.add(geyserItemStack.asIngredient());
 
                     InventorySlotPacket slotPacket = new InventorySlotPacket();
                     slotPacket.setContainerId(ContainerId.UI);
@@ -179,22 +178,21 @@ public class JavaContainerSetSlotTranslator extends PacketTranslator<Clientbound
                 }
             }
 
-            // Cache this recipe so we know the client has received it
-            session.getCraftingRecipes().put(newRecipeId, new GeyserShapedRecipe(width, height, javaIngredients, item));
+            GeyserShapedRecipe geyserRecipe = new GeyserShapedRecipe(ThreadLocalRandom.current().nextInt(), newRecipeId,
+                    width, height, javaIngredients, new ItemStackSlotDisplay(item));
+            session.getCraftingRecipes().put(newRecipeId, geyserRecipe);
 
             CraftingDataPacket craftPacket = new CraftingDataPacket();
-            craftPacket.getCraftingData().add(ShapedRecipeData.shaped(
-                    uuid.toString(),
-                    width,
-                    height,
-                    Arrays.stream(ingredients).map(ItemDescriptorWithCount::fromItem).toList(),
-                    Collections.singletonList(ItemTranslator.translateToBedrock(session, item)),
-                    uuid,
-                    "crafting_table",
-                    0,
-                    newRecipeId
-            ));
-            craftPacket.setCleanRecipes(false);
+            ShapedRecipeData data = geyserRecipe.asRecipeData(session).getFirst();
+            if (GameProtocol.is26_40orHigher(session.protocolVersion())) {
+                if (data.getType().equals(CraftingDataType.SHAPED)) {
+                    craftPacket.getShapedData().add(data);
+                } else {
+                    throw new IllegalStateException("Unexpected value: " + data);
+                }
+            } else {
+                craftPacket.getCraftingData().add(data);
+            }
             session.sendUpstreamPacket(craftPacket);
 
             index = 0;
@@ -208,6 +206,77 @@ public class JavaContainerSetSlotTranslator extends PacketTranslator<Clientbound
                     index++;
                 }
             }
+        }, 150, TimeUnit.MILLISECONDS));
+    }
+
+    static void updateSmithingTableOutput(int slot, ItemStack output, InventoryHolder<?> holder) {
+        if (slot != SmithingInventoryTranslator.OUTPUT) {
+            return;
+        }
+        GeyserSession session = holder.session();
+
+        // Only process the most recent output result, and cancel the previous one.
+        if (session.getContainerOutputFuture() != null) {
+            session.getContainerOutputFuture().cancel(false);
+        }
+
+        if (InventoryUtils.isEmpty(output)) {
+            return;
+        }
+
+        Inventory inventory = holder.inventory();
+        session.setContainerOutputFuture(session.scheduleInEventLoop(() -> {
+            GeyserItemStack template = inventory.getItem(SmithingInventoryTranslator.TEMPLATE);
+            if (!template.is(Items.NETHERITE_UPGRADE_SMITHING_TEMPLATE)) {
+                // Technically we should probably also do this for custom items, but last I checked Bedrock doesn't even support that.
+                return;
+            }
+
+            GeyserItemStack input = inventory.getItem(SmithingInventoryTranslator.INPUT);
+            GeyserItemStack material = inventory.getItem(SmithingInventoryTranslator.MATERIAL);
+            GeyserItemStack geyserOutput = GeyserItemStack.from(session, output);
+
+            for (GeyserSmithingRecipe recipe : session.getSmithingRecipes()) {
+                if (InventoryUtils.acceptsAsInput(session, recipe.result(), geyserOutput)
+                && InventoryUtils.acceptsAsInput(session, recipe.base(), input)
+                && InventoryUtils.acceptsAsInput(session, recipe.addition(), material)
+                && InventoryUtils.acceptsAsInput(session, recipe.template(), template)) {
+                    // The client already recognizes this item.
+                    return;
+                }
+            }
+
+            GeyserSmithingRecipe geyserRecipe = new GeyserSmithingRecipe(
+                ThreadLocalRandom.current().nextInt(),
+                session.getLastRecipeNetId().incrementAndGet(),
+                template.asIngredient(),
+                input.asIngredient(),
+                material.asIngredient(),
+                new ItemStackSlotDisplay(output)
+            );
+            session.getSmithingRecipes().add(geyserRecipe);
+
+            CraftingDataPacket craftPacket = new CraftingDataPacket();
+            SmithingTransformRecipeData data = geyserRecipe.asRecipeData(session).getFirst();
+            if (GameProtocol.is26_40orHigher(session.protocolVersion())) {
+                if (data.getType().equals(CraftingDataType.SMITHING_TRANSFORM)) {
+                    craftPacket.getSmithingTransformData().add(data);
+                } else {
+                    throw new IllegalStateException("Unexpected value: " + data);
+                }
+            } else {
+                craftPacket.getCraftingData().add(data);
+            }
+            session.sendUpstreamPacket(craftPacket);
+
+            // Just set one of the slots to air, then right back to its proper item.
+            InventorySlotPacket slotPacket = new InventorySlotPacket();
+            slotPacket.setContainerId(ContainerId.UI);
+            slotPacket.setSlot(holder.translator().javaSlotToBedrock(SmithingInventoryTranslator.MATERIAL));
+            slotPacket.setItem(ItemData.AIR);
+            session.sendUpstreamPacket(slotPacket);
+
+            holder.updateSlot(SmithingInventoryTranslator.MATERIAL);
         }, 150, TimeUnit.MILLISECONDS));
     }
 }

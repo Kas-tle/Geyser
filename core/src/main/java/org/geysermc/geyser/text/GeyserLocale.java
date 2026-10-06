@@ -26,6 +26,7 @@
 package org.geysermc.geyser.text;
 
 import it.unimi.dsi.fastutil.objects.ObjectArrays;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.geysermc.geyser.GeyserBootstrap;
 import org.geysermc.geyser.GeyserImpl;
 
@@ -40,6 +41,7 @@ import java.util.Map;
 import java.util.Properties;
 
 public class GeyserLocale {
+    public static final String SYSTEM_LOCALE = "system";
 
     /**
      * If we determine the default locale that the user wishes to use, use that locale
@@ -79,8 +81,8 @@ public class GeyserLocale {
      * Finalize the default locale, now that we know what the default locale should be.
      */
     public static void finalizeDefaultLocale(GeyserImpl geyser) {
-        String newDefaultLocale = geyser.getConfig().getDefaultLocale();
-        if (newDefaultLocale == null) {
+        String newDefaultLocale = geyser.config().defaultLocale();
+        if (SYSTEM_LOCALE.equals(newDefaultLocale)) {
             // We want to use the system locale which is already loaded
             return;
         }
@@ -110,7 +112,7 @@ public class GeyserLocale {
         loadGeyserLocale(locale, geyser.getBootstrap());
     }
 
-    private static String loadGeyserLocale(String locale, GeyserBootstrap bootstrap) {
+    private static @Nullable String loadGeyserLocale(String locale, GeyserBootstrap bootstrap) {
         locale = formatLocale(locale);
         // Don't load the locale if it's already loaded.
         if (LOCALE_MAPPINGS.containsKey(locale)) {
@@ -147,9 +149,9 @@ public class GeyserLocale {
                 } catch (IOException ignored) {}
             }
         } else {
-            if (GeyserImpl.getInstance() != null && !validLocalLanguage) {
+            if (!validLocalLanguage) {
                 // Don't warn on missing locales if a local file has been found
-                GeyserImpl.getInstance().getLogger().warning("Missing locale: " + locale);
+                bootstrap.getGeyserLogger().debug("Missing locale: " + locale);
             }
         }
 
@@ -157,16 +159,11 @@ public class GeyserLocale {
         // By loading both, we ensure that if a language string doesn't exist in the custom properties folder,
         // it's loaded from our jar
         if (validLocalLanguage) {
-            try (InputStream stream = new FileInputStream(localLanguage)) {
+            try (InputStreamReader stream = new InputStreamReader(new FileInputStream(localLanguage), StandardCharsets.UTF_8)) {
                 localeProp.load(stream);
             } catch (IOException e) {
                 String message = "Unable to load custom language override!";
-                if (GeyserImpl.getInstance() != null) {
-                    GeyserImpl.getInstance().getLogger().error(message, e);
-                } else {
-                    System.err.println(message);
-                    e.printStackTrace();
-                }
+                bootstrap.getGeyserLogger().error(message, e);
             }
 
             LOCALE_MAPPINGS.putIfAbsent(locale, localeProp);
@@ -263,6 +260,13 @@ public class GeyserLocale {
             // Invalid locale
             return locale;
         }
+
+        // See https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes - covers the special case that is norwegian
+        String lowerCaseLocale = locale.toLowerCase(Locale.ROOT);
+        if (lowerCaseLocale.equals("nn_no") || lowerCaseLocale.equals("no_no")) {
+            locale = "nb_NO";
+        }
+
         String language = locale.substring(0, 2);
         String country = locale.substring(3);
         return language.toLowerCase(Locale.ENGLISH) + "_" + country.toUpperCase(Locale.ENGLISH);

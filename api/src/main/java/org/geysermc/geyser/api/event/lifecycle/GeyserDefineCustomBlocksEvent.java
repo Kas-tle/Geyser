@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,16 +25,14 @@
 
 package org.geysermc.geyser.api.event.lifecycle;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.geysermc.geyser.api.block.custom.CustomBlockData;
 import org.geysermc.geyser.api.block.custom.CustomBlockState;
-import org.geysermc.geyser.api.block.custom.nonvanilla.JavaBlockItem;
 import org.geysermc.geyser.api.block.custom.nonvanilla.JavaBlockState;
 import org.geysermc.event.Event;
 
 /**
  * Called on Geyser's startup when looking for custom blocks. Custom blocks must be registered through this event.
- *
+ * <p>
  * This event will not be called if the "add-non-bedrock-items" setting is disabled in the Geyser config.
  */
 public abstract class GeyserDefineCustomBlocksEvent implements Event {
@@ -43,18 +41,18 @@ public abstract class GeyserDefineCustomBlocksEvent implements Event {
      *
      * @param customBlockData the custom block to register
      */
-    public abstract void register(@NonNull CustomBlockData customBlockData);
+    public abstract void register(CustomBlockData customBlockData);
 
     /**
      * Registers the given {@link CustomBlockState} as an override for the
      * given java state identifier
-     * Java state identifiers are listed in
-     * https://raw.githubusercontent.com/GeyserMC/mappings/master/blocks.json
+     * Java state identifiers are listed
+     * <a href="https://raw.githubusercontent.com/GeyserMC/mappings/master/blocks.json">here</a>
      *
      * @param javaIdentifier the java state identifier to override
      * @param customBlockState the custom block state with which to override java state identifier
      */
-    public abstract void registerOverride(@NonNull String javaIdentifier, @NonNull CustomBlockState customBlockState);
+    public abstract void registerOverride(String javaIdentifier, CustomBlockState customBlockState);
 
     /**
      * Registers the given {@link CustomBlockData} as an override for the
@@ -63,7 +61,7 @@ public abstract class GeyserDefineCustomBlocksEvent implements Event {
      * @param javaIdentifier the java item identifier to override
      * @param customBlockData the custom block data with which to override java item identifier
      */
-    public abstract void registerItemOverride(@NonNull String javaIdentifier, @NonNull CustomBlockData customBlockData);
+    public abstract void registerItemOverride(String javaIdentifier, CustomBlockData customBlockData);
 
     /**
      * Registers the given {@link CustomBlockState} as an override for the
@@ -72,5 +70,5 @@ public abstract class GeyserDefineCustomBlocksEvent implements Event {
      * @param javaBlockState the java block state for the non-vanilla block
      * @param customBlockState the custom block state with which to override java state identifier
      */
-    public abstract void registerOverride(@NonNull JavaBlockState javaBlockState, @NonNull CustomBlockState customBlockState);
+    public abstract void registerOverride(JavaBlockState javaBlockState, CustomBlockState customBlockState);
 }

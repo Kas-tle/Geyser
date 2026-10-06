@@ -14,11 +14,9 @@ public class GeyserJavaBlockState implements JavaBlockState {
     boolean waterlogged;
     JavaBoundingBox[] collision;
     boolean canBreakWithHand;
-    String pickItem;
     String pistonBehavior;
-    boolean hasBlockEntity;
 
-    private GeyserJavaBlockState(JavaBlockStateBuilder builder) {
+    private GeyserJavaBlockState(Builder builder) {
         this.identifier = builder.identifier;
         this.javaId = builder.javaId;
         this.stateGroupId = builder.stateGroupId;
@@ -26,9 +24,7 @@ public class GeyserJavaBlockState implements JavaBlockState {
         this.waterlogged = builder.waterlogged;
         this.collision = builder.collision;
         this.canBreakWithHand = builder.canBreakWithHand;
-        this.pickItem = builder.pickItem;
         this.pistonBehavior = builder.pistonBehavior;
-        this.hasBlockEntity = builder.hasBlockEntity;
     }
 
     @Override
@@ -52,7 +48,7 @@ public class GeyserJavaBlockState implements JavaBlockState {
     }
 
     @Override
-    public @NonNull boolean waterlogged() {
+    public boolean waterlogged() {
         return waterlogged;
     }
 
@@ -62,13 +58,13 @@ public class GeyserJavaBlockState implements JavaBlockState {
     }
 
     @Override
-    public @NonNull boolean canBreakWithHand() {
+    public boolean canBreakWithHand() {
         return canBreakWithHand;
     }
 
     @Override
     public @Nullable String pickItem() {
-        return pickItem;
+        return null;
     }
 
     @Override
@@ -76,12 +72,13 @@ public class GeyserJavaBlockState implements JavaBlockState {
         return pistonBehavior;
     }
 
+    @SuppressWarnings("removal")
     @Override
-    public @Nullable boolean hasBlockEntity() {
-        return hasBlockEntity;
+    public boolean hasBlockEntity() {
+        return false;
     }
 
-    public static class JavaBlockStateBuilder implements Builder {
+    public static class Builder implements JavaBlockState.Builder {
         private String identifier;
         private int javaId;
         private int stateGroupId;
@@ -89,9 +86,7 @@ public class GeyserJavaBlockState implements JavaBlockState {
         private boolean waterlogged;
         private JavaBoundingBox[] collision;
         private boolean canBreakWithHand;
-        private String pickItem;
         private String pistonBehavior;
-        private boolean hasBlockEntity;
 
         @Override
         public Builder identifier(@NonNull String identifier) {
@@ -118,7 +113,7 @@ public class GeyserJavaBlockState implements JavaBlockState {
         }
 
         @Override
-        public Builder waterlogged(@NonNull boolean waterlogged) {
+        public Builder waterlogged(boolean waterlogged) {
             this.waterlogged = waterlogged;
             return this;
         }
@@ -130,14 +125,14 @@ public class GeyserJavaBlockState implements JavaBlockState {
         }
 
         @Override
-        public Builder canBreakWithHand(@NonNull boolean canBreakWithHand) {
+        public Builder canBreakWithHand(boolean canBreakWithHand) {
             this.canBreakWithHand = canBreakWithHand;
             return this;
         }
 
         @Override
+        @Deprecated
         public Builder pickItem(@Nullable String pickItem) {
-            this.pickItem = pickItem;
             return this;
         }
 
@@ -147,9 +142,13 @@ public class GeyserJavaBlockState implements JavaBlockState {
             return this;
         }
 
+        @SuppressWarnings("removal")
         @Override
-        public Builder hasBlockEntity(@Nullable boolean hasBlockEntity) {
-            this.hasBlockEntity = hasBlockEntity;
+        public Builder hasBlockEntity(boolean hasBlockEntity) {
+            // keep the current behavior
+            if (this.pistonBehavior == null && hasBlockEntity) {
+                this.pistonBehavior = "BLOCK";
+            }
             return this;
         }
 

@@ -25,30 +25,38 @@
 
 package org.geysermc.geyser.inventory;
 
-import com.github.steveice10.mc.protocol.data.game.entity.player.Hand;
 import lombok.Getter;
 import lombok.Setter;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityFlag;
 import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.entity.type.player.PlayerEntity;
+import org.geysermc.geyser.item.Items;
+import org.geysermc.geyser.item.type.Item;
 import org.geysermc.geyser.session.GeyserSession;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.EquipmentSlot;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.player.Hand;
+import org.geysermc.mcprotocollib.protocol.data.game.item.ItemStack;
+import org.geysermc.mcprotocollib.protocol.data.game.item.component.DataComponentTypes;
 import org.jetbrains.annotations.Range;
 
-import javax.annotation.Nonnull;
+import java.util.List;
+import java.util.Map;
 
+@Getter
 public class PlayerInventory extends Inventory {
     /**
      * Stores the held item slot, starting at index 0.
      * Add 36 in order to get the network item slot.
      */
-    @Getter
     @Setter
     private int heldItemSlot;
 
-    @Getter
-    @Nonnull
+    @NonNull
     private GeyserItemStack cursor = GeyserItemStack.EMPTY;
 
-    public PlayerInventory() {
-        super(0, 46, null);
+    public PlayerInventory(GeyserSession session) {
+        super(session, 0, 46, null);
         heldItemSlot = 0;
     }
 
@@ -57,12 +65,22 @@ public class PlayerInventory extends Inventory {
         return slot + 36;
     }
 
-    public void setCursor(@Nonnull GeyserItemStack newCursor, GeyserSession session) {
+    public void setCursor(@NonNull GeyserItemStack newCursor, GeyserSession session) {
         updateItemNetId(cursor, newCursor, session);
         cursor = newCursor;
     }
 
-    public GeyserItemStack getItemInHand(@Nonnull Hand hand) {
+    /**
+     * Checks if the player is holding the specified item in either hand
+     *
+     * @param item The item to look for
+     * @return If the player is holding the item in either hand
+     */
+    public boolean isHolding(@NonNull Item item) {
+        return getItemInHand().is(item) || getOffhand().is(item);
+    }
+
+    public GeyserItemStack getItemInHand(@NonNull Hand hand) {
         return hand == Hand.OFF_HAND ? getOffhand() : getItemInHand();
     }
 
@@ -74,12 +92,54 @@ public class PlayerInventory extends Inventory {
         return items[36 + heldItemSlot];
     }
 
-    public void setItemInHand(@Nonnull GeyserItemStack item) {
+    // TODO other equipment slots
+    public Map<EquipmentSlot, GeyserItemStack> getEquipment() {
+        return Map.of(
+            EquipmentSlot.MAIN_HAND, getItemInHand(),
+            EquipmentSlot.OFF_HAND, items[45],
+            EquipmentSlot.BOOTS, items[8],
+            EquipmentSlot.LEGGINGS, items[7],
+            EquipmentSlot.CHESTPLATE, items[6],
+            EquipmentSlot.HELMET, items[5]
+        );
+    }
+
+    public void setItemInHand(@NonNull GeyserItemStack item) {
         if (36 + heldItemSlot > this.size) {
             GeyserImpl.getInstance().getLogger().debug("Held item slot was larger than expected!");
             return;
         }
         items[36 + heldItemSlot] = item;
+    }
+
+    @Override
+    public void setItem(int slot, @NonNull GeyserItemStack newItem, GeyserSession session) {
+        final PlayerEntity entity = session.getPlayerEntity();
+        if (slot == getOffsetForHotbar(heldItemSlot)  && entity.getFlag(EntityFlag.USING_ITEM) && newItem.is(Items.CROSSBOW)) {
+            List<ItemStack> chargedProjectiles = newItem.getComponent(DataComponentTypes.CHARGED_PROJECTILES);
+
+            // On Java, when you finished charging a projectile into (a crossbow), the client can keep holding down
+            // right click and keep using it, however and Bedrock if you do that and allow the client to keep using the item
+            // it will loop the crossbow state, so we'll have to forcefully stop them from using the crossbow, and tell
+            // the Java server to stop using the item, because Bedrock will never send RELEASE_ITEM (even if they stop holding down right click)
+            // causing a de-sync, so we'll have to do it ourselves.
+
+            // This is checked here so we'll only do this when the server charged the crossbow.
+            if (chargedProjectiles != null && !chargedProjectiles.isEmpty()) {
+                entity.setFlag(EntityFlag.USING_ITEM, false);
+                entity.updateBedrockMetadata();
+
+                session.releaseItem();
+                session.setLastChargedProjectilesTime(System.currentTimeMillis());
+            }
+        }
+
+        super.setItem(slot, newItem, session);
+    }
+
+    @Override
+    public boolean shouldConfirmContainerClose() {
+        return false;
     }
 
     public GeyserItemStack getOffhand() {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 GeyserMC. http://geysermc.org
+ * Copyright (c) 2019-2026 GeyserMC. http://geysermc.org
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,20 +25,25 @@
 
 package org.geysermc.geyser.api.item.custom;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.geysermc.geyser.api.GeyserApi;
+import org.jspecify.annotations.Nullable;
+
+import java.util.OptionalInt;
+import java.util.Set;
 
 /**
  * This is used to store data for a custom item.
+ *
+ * @deprecated use the new {@link org.geysermc.geyser.api.item.custom.v2.CustomItemDefinition}
  */
+@Deprecated
 public interface CustomItemData {
     /**
      * Gets the item's name.
      *
      * @return the item's name
      */
-    @NonNull String name();
+    String name();
 
     /**
      * Gets the custom item options of the item.
@@ -52,14 +57,14 @@ public interface CustomItemData {
      *
      * @return the item's display name
      */
-    @NonNull String displayName();
+    String displayName();
 
     /**
      * Gets the item's icon. By default, this is the item's name.
      *
      * @return the item's icon
      */
-    @NonNull String icon();
+    String icon();
 
     /**
      * Gets if the item is allowed to be put into the offhand.
@@ -76,18 +81,44 @@ public interface CustomItemData {
     boolean displayHandheld();
 
     /**
+     * Gets the item's creative category, or tab id.
+     *
+     * @return the item's creative category
+     */
+    OptionalInt creativeCategory();
+
+    /**
+     * Gets the item's creative group.
+     *
+     * @return the item's creative group
+     */
+    @Nullable String creativeGroup();
+
+    /**
      * Gets the item's texture size. This is to resize the item if the texture is not 16x16.
      *
+     * @deprecated setting the texture size is deprecated; use attachables instead
      * @return the item's texture size
      */
+    @Deprecated
     int textureSize();
 
     /**
      * Gets the item's render offsets. If it is null, the item will be rendered normally, with no offsets.
      *
+     * @deprecated render offsets have been deprecated; attachables should be used instead
      * @return the item's render offsets
      */
+    @Deprecated
     @Nullable CustomRenderOffsets renderOffsets();
+
+    /**
+     * Gets the item's set of tags that can be used in Molang.
+     * Equivalent to "tag:some_tag"
+     *
+     * @return the item's tags, if they exist
+     */
+    Set<String> tags();
 
     static CustomItemData.Builder builder() {
         return GeyserApi.api().provider(CustomItemData.Builder.class);
@@ -97,21 +128,29 @@ public interface CustomItemData {
         /**
          * Will also set the display name and icon to the provided parameter, if it is currently not set.
          */
-        Builder name(@NonNull String name);
+        Builder name(String name);
 
-        Builder customItemOptions(@NonNull CustomItemOptions customItemOptions);
+        Builder customItemOptions(CustomItemOptions customItemOptions);
 
-        Builder displayName(@NonNull String displayName);
+        Builder displayName(String displayName);
 
-        Builder icon(@NonNull String icon);
+        Builder icon(String icon);
 
         Builder allowOffhand(boolean allowOffhand);
 
         Builder displayHandheld(boolean displayHandheld);
 
+        Builder creativeCategory(int creativeCategory);
+
+        Builder creativeGroup(@Nullable String creativeGroup);
+
+        @Deprecated
         Builder textureSize(int textureSize);
 
+        @Deprecated
         Builder renderOffsets(@Nullable CustomRenderOffsets renderOffsets);
+
+        Builder tags(@Nullable Set<String> tags);
 
         CustomItemData build();
     }

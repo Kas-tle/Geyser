@@ -25,11 +25,9 @@
 
 package org.geysermc.geyser;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.steveice10.packetlib.tcp.TcpSession;
+import org.cloudburstmc.netty.util.nethernet.TrustedProxies;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import io.netty.channel.epoll.Epoll;
 import io.netty.util.NettyRuntime;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -39,9 +37,17 @@ import lombok.Getter;
 import lombok.Setter;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.raphimc.minecraftauth.msa.data.MsaConstants;
+import net.raphimc.minecraftauth.msa.model.MsaApplicationConfig;
+import org.bstats.MetricsBase;
+import org.bstats.charts.AdvancedPie;
+import org.bstats.charts.DrilldownPie;
+import org.bstats.charts.SimplePie;
+import org.bstats.charts.SingleLineChart;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.cloudburstmc.protocol.bedrock.util.EncryptionUtils;
 import org.geysermc.api.Geyser;
 import org.geysermc.cumulus.form.Form;
 import org.geysermc.cumulus.form.util.FormBuilder;
@@ -52,132 +58,185 @@ import org.geysermc.floodgate.crypto.Base64Topping;
 import org.geysermc.floodgate.crypto.FloodgateCipher;
 import org.geysermc.floodgate.news.NewsItemAction;
 import org.geysermc.geyser.api.GeyserApi;
-import org.geysermc.geyser.api.event.EventBus;
+import org.geysermc.geyser.api.command.CommandSource;
 import org.geysermc.geyser.api.event.EventRegistrar;
+import org.geysermc.geyser.api.event.lifecycle.GeyserDefineCustomBlocksEvent;
+import org.geysermc.geyser.api.event.lifecycle.GeyserDefineCustomItemsEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPostInitializeEvent;
+import org.geysermc.geyser.api.event.lifecycle.GeyserPostReloadEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserPreInitializeEvent;
+import org.geysermc.geyser.api.event.lifecycle.GeyserPreReloadEvent;
+import org.geysermc.geyser.api.event.lifecycle.GeyserRegisterPermissionsEvent;
 import org.geysermc.geyser.api.event.lifecycle.GeyserShutdownEvent;
 import org.geysermc.geyser.api.network.AuthType;
 import org.geysermc.geyser.api.network.BedrockListener;
 import org.geysermc.geyser.api.network.RemoteServer;
+import org.geysermc.geyser.api.util.MinecraftVersion;
 import org.geysermc.geyser.api.util.PlatformType;
-import org.geysermc.geyser.command.GeyserCommandManager;
-import org.geysermc.geyser.configuration.GeyserConfiguration;
-import org.geysermc.geyser.entity.EntityDefinitions;
+import org.geysermc.geyser.command.CommandRegistry;
+import org.geysermc.geyser.configuration.GeyserConfig;
+import org.geysermc.geyser.configuration.GeyserPluginConfig;
+import org.geysermc.geyser.entity.VanillaEntities;
 import org.geysermc.geyser.erosion.UnixSocketClientListener;
 import org.geysermc.geyser.event.GeyserEventBus;
+import org.geysermc.geyser.event.type.SessionDisconnectEventImpl;
 import org.geysermc.geyser.extension.GeyserExtensionManager;
+import org.geysermc.geyser.impl.MinecraftVersionImpl;
+import org.geysermc.geyser.level.BedrockDimension;
 import org.geysermc.geyser.level.WorldManager;
-import org.geysermc.geyser.network.netty.GeyserServer;
+import org.geysermc.geyser.network.RaknetServer;
+import org.geysermc.geyser.network.bedrock.GameProtocol;
+import org.geysermc.geyser.network.bedrock.nethernet.NetherNetServer;
+import org.geysermc.geyser.ping.GeyserLegacyPingPassthrough;
 import org.geysermc.geyser.registry.BlockRegistries;
 import org.geysermc.geyser.registry.Registries;
+import org.geysermc.geyser.registry.loader.ResourcePackLoader;
+import org.geysermc.geyser.registry.mappings.BuiltInMappings;
+import org.geysermc.geyser.registry.provider.ProviderSupplier;
 import org.geysermc.geyser.scoreboard.ScoreboardUpdater;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.PendingMicrosoftAuthentication;
+import org.geysermc.geyser.session.SessionDisconnectListener;
 import org.geysermc.geyser.session.SessionManager;
+import org.geysermc.geyser.session.cache.RegistryCache;
 import org.geysermc.geyser.skin.FloodgateSkinUploader;
 import org.geysermc.geyser.skin.ProvidedSkins;
 import org.geysermc.geyser.skin.SkinProvider;
 import org.geysermc.geyser.text.GeyserLocale;
 import org.geysermc.geyser.text.MinecraftLocale;
 import org.geysermc.geyser.translator.text.MessageTranslator;
-import org.geysermc.geyser.util.*;
+import org.geysermc.geyser.util.AssetUtils;
+import org.geysermc.geyser.util.CodeOfConductManager;
+import org.geysermc.geyser.util.InternalPlatformType;
+import org.geysermc.geyser.util.JsonUtils;
+import org.geysermc.geyser.util.NewsHandler;
+import org.geysermc.geyser.util.VersionCheckUtils;
+import org.geysermc.geyser.util.WebUtils;
+import org.geysermc.geyser.util.metrics.MetricsPlatform;
 
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.security.Key;
 import java.text.DecimalFormat;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Getter
-public class GeyserImpl implements GeyserApi {
-    public static final ObjectMapper JSON_MAPPER = new ObjectMapper()
-            .enable(JsonParser.Feature.IGNORE_UNDEFINED)
-            .enable(JsonParser.Feature.ALLOW_COMMENTS)
-            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .enable(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES)
-            .enable(JsonParser.Feature.ALLOW_SINGLE_QUOTES);
+public class GeyserImpl implements GeyserApi, EventRegistrar {
+    public static final Gson GSON = JsonUtils.createGson();
 
     public static final String NAME = "Geyser";
-    public static final String GIT_VERSION = "${gitVersion}"; // A fallback for running in IDEs
-    public static final String VERSION = "${version}"; // A fallback for running in IDEs
+    public static final String GIT_VERSION = BuildData.GIT_VERSION;
+    public static final String VERSION = BuildData.VERSION;
 
-    public static final String BUILD_NUMBER = "${buildNumber}";
-    public static final String BRANCH = "${branch}";
-    public static final String COMMIT = "${commit}";
-    public static final String REPOSITORY = "${repository}";
+    public static final String BUILD_NUMBER = BuildData.BUILD_NUMBER;
+    public static final String BRANCH = BuildData.BRANCH;
+    public static final String COMMIT = BuildData.COMMIT;
+    public static final String REPOSITORY = BuildData.REPOSITORY;
+    public static final boolean IS_DEV = BuildData.isDevBuild();
 
     /**
-     * Oauth client ID for Microsoft authentication
+     * Oauth config for Microsoft authentication
      */
-    public static final String OAUTH_CLIENT_ID = "204cefd1-4818-4de1-b98d-513fae875d88";
+    public static final MsaApplicationConfig OAUTH_CONFIG = new MsaApplicationConfig("204cefd1-4818-4de1-b98d-513fae875d88", MsaConstants.SCOPE_OFFLINE_ACCESS);
 
-    private static final String IP_REGEX = "\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b";
+    private static final Pattern IP_REGEX = Pattern.compile("\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b");
 
     private final SessionManager sessionManager = new SessionManager();
 
-    /**
-     * This is used in GeyserConnect to stop the bedrock server binding to a port
-     */
-    @Setter
-    private static boolean shouldStartListener = true;
-
     private FloodgateCipher cipher;
-    private FloodgateSkinUploader skinUploader;
+    private @Nullable FloodgateSkinUploader skinUploader;
     private NewsHandler newsHandler;
 
     private UnixSocketClientListener erosionUnixListener;
 
+    @Setter
     private volatile boolean shuttingDown = false;
 
     private ScheduledExecutorService scheduledThread;
 
-    private GeyserServer geyserServer;
-    private final PlatformType platformType;
+    private ScoreboardUpdater scoreboardUpdater;
+
+    private RaknetServer geyserServer;
+    private NetherNetServer netherNetServer;
     private final GeyserBootstrap bootstrap;
 
-    private final EventBus<EventRegistrar> eventBus;
+    private final GeyserEventBus eventBus;
     private final GeyserExtensionManager extensionManager;
 
-    private Metrics metrics;
+    private MetricsBase metrics;
 
     private PendingMicrosoftAuthentication pendingMicrosoftAuthentication;
     @Getter(AccessLevel.NONE)
-    private Map<String, String> savedRefreshTokens;
+    private Map<String, String> savedAuthChains;
 
+    @Getter
     private static GeyserImpl instance;
 
-    private GeyserImpl(PlatformType platformType, GeyserBootstrap bootstrap) {
+    /**
+     * Determines if we're currently reloading. Replaces per-bootstrap reload checks
+     */
+    @Setter
+    private boolean isReloading;
+
+    /**
+     * Determines if Geyser is currently enabled. This is used to determine if {@link #disable()} should be called during {@link #shutdown()}.
+     */
+    @Setter
+    private boolean isEnabled;
+
+    private GeyserImpl(GeyserBootstrap bootstrap) {
         instance = this;
 
         Geyser.set(this);
 
-        this.platformType = platformType;
         this.bootstrap = bootstrap;
-
-        GeyserLocale.finalizeDefaultLocale(this);
 
         /* Initialize event bus */
         this.eventBus = new GeyserEventBus();
 
-        /* Load Extensions */
+        /* Create Extension Manager */
         this.extensionManager = new GeyserExtensionManager();
+
+        /* Finalize locale loading now that we know the default locale from the config */
+        GeyserLocale.finalizeDefaultLocale(this);
+
+        /* Load Extensions */
         this.extensionManager.init();
         this.eventBus.fire(new GeyserPreInitializeEvent(this.extensionManager, this.eventBus));
     }
 
     public void initialize() {
+        // Setup encryption early so we don't start if we can't auth
+        if (config().advanced().bedrock().validateBedrockLogin()) {
+            try {
+                EncryptionUtils.getMojangPublicKey();
+            } catch (Throwable t) {
+                GeyserImpl.getInstance().getLogger().error("Unable to set up encryption! This can be caused by your internet connection or the Minecraft api being unreachable. ", t);
+                this.disable();
+                return;
+            }
+        }
+
         long startupTime = System.currentTimeMillis();
 
         GeyserLogger logger = bootstrap.getGeyserLogger();
@@ -186,14 +245,28 @@ public class GeyserImpl implements GeyserApi {
         logger.info("");
         logger.info(GeyserLocale.getLocaleStringLog("geyser.core.load", NAME, VERSION));
         logger.info("");
+        if (IS_DEV) {
+            logger.info(GeyserLocale.getLocaleStringLog("geyser.core.dev_build", "https://discord.gg/geysermc"));
+            logger.info("");
+        }
         logger.info("******************************************");
 
-        /* Initialize registries */
-        Registries.init();
-        BlockRegistries.init();
+        eventBus.subscribe(this, GeyserDefineCustomBlocksEvent.class, BuiltInMappings::registerBlocks);
+        eventBus.subscribe(this, GeyserDefineCustomItemsEvent.class, BuiltInMappings::registerItems);
+
+        /*
+        First load the registries and then populate them.
+        Both the block registries and the common registries depend on each other,
+        so maintaining this order is crucial for Geyser to load.
+         */
+        Registries.load();
+        BlockRegistries.populate();
+        Registries.populate();
+
+        RegistryCache.init();
 
         /* Initialize translators */
-        EntityDefinitions.init();
+        VanillaEntities.init();
         MessageTranslator.init();
 
         // Download the latest asset list and cache it
@@ -201,48 +274,88 @@ public class GeyserImpl implements GeyserApi {
             if (ex != null) {
                 return;
             }
+
+            MinecraftLocale.downloadDeprecations();
             MinecraftLocale.ensureEN_US();
-            String locale = GeyserLocale.getDefaultLocale();
-            if (!"en_us".equals(locale)) {
-                // English will be loaded after assets are downloaded, if necessary
-                MinecraftLocale.downloadAndLoadLocale(locale);
-            }
 
             ProvidedSkins.init();
 
             CompletableFuture.runAsync(AssetUtils::downloadAndRunClientJarTasks);
         });
 
+        // Register our general permissions when possible
+        eventBus.subscribe(this, GeyserRegisterPermissionsEvent.class, Permissions::register);
+        // Replace disconnect messages whenever necessary
+        eventBus.subscribe(this, SessionDisconnectEventImpl.class, SessionDisconnectListener::onSessionDisconnect);
+
         startInstance();
 
-        GeyserConfiguration config = bootstrap.getGeyserConfig();
+        GeyserConfig config = bootstrap.config();
 
         double completeTime = (System.currentTimeMillis() - startupTime) / 1000D;
         String message = GeyserLocale.getLocaleStringLog("geyser.core.finish.done", new DecimalFormat("#.###").format(completeTime));
         message += " " + GeyserLocale.getLocaleStringLog("geyser.core.finish.console");
         logger.info(message);
 
-        if (platformType == PlatformType.STANDALONE) {
-            if (config.getRemote().authType() != AuthType.FLOODGATE) {
+        if (platformType() == PlatformType.STANDALONE) {
+            if (config.java().authType() != AuthType.FLOODGATE) {
                 // If the auth-type is Floodgate, then this Geyser instance is probably owned by the Java server
                 logger.warning(GeyserLocale.getLocaleStringLog("geyser.core.movement_warn"));
             }
-        } else if (config.getRemote().authType() == AuthType.FLOODGATE) {
+        } else if (config.java().authType() == AuthType.FLOODGATE) {
             VersionCheckUtils.checkForOutdatedFloodgate(logger);
         }
+
+        VersionCheckUtils.checkForOutdatedJava(logger);
     }
 
     private void startInstance() {
         this.scheduledThread = Executors.newSingleThreadScheduledExecutor(new DefaultThreadFactory("Geyser Scheduled Thread"));
 
-        GeyserLogger logger = bootstrap.getGeyserLogger();
-        GeyserConfiguration config = bootstrap.getGeyserConfig();
+        if (isReloading) {
+            // If we're reloading, the default locale in the config might have changed.
+            GeyserLocale.finalizeDefaultLocale(this);
+        } else {
+            CodeOfConductManager.load();
+        }
 
-        ScoreboardUpdater.init();
+        GeyserLogger logger = bootstrap.getGeyserLogger();
+        GeyserConfig config = bootstrap.config();
+
+        this.scoreboardUpdater = ScoreboardUpdater.init();
 
         SkinProvider.registerCacheImageTask(this);
 
         Registries.RESOURCE_PACKS.load();
+        Registries.WAYPOINT_STYLE_MAPPINGS.load();
+
+        // Warnings to users who enable options that they might not need.
+        if (config.advanced().bedrock().useHaproxyProtocol()) {
+            logger.warning("Geyser is configured to expect HAProxy protocol for incoming Bedrock connections.");
+            logger.warning("If you do not know what this is, open the Geyser config, and set \"use-haproxy-protocol\" under the  \"advanced/bedrock\" section to \"false\".");
+        }
+
+        if (config.advanced().java().useHaproxyProtocol()) {
+            logger.warning("Geyser is configured to use proxy protocol when connecting to the Java server.");
+            logger.warning("If you do not know what this is, open the Geyser config, and set \"use-haproxy-protocol\" under the  \"advanced/java\" section to \"false\".");
+        }
+
+        if (!config.advanced().bedrock().validateBedrockLogin()) {
+            logger.error("XBOX AUTHENTICATION IS DISABLED ON THIS GEYSER INSTANCE!");
+            logger.error("While this allows using Bedrock edition proxies, it also opens up the ability for hackers to connect with any username they choose.");
+            logger.error("To change this, set \"disable-xbox-auth\" to \"false\" in Geyser's config file.");
+        }
+
+        pendingMicrosoftAuthentication = new PendingMicrosoftAuthentication(config.pendingAuthenticationTimeout());
+
+        Packets.initGeyser();
+
+        BedrockDimension.changeBedrockNetherId(config.gameplay().netherRoofWorkaround()); // Apply End dimension ID workaround to Nether
+
+        if (platformType() == InternalPlatformType.GAMETEST) {
+            // Note: not firing post reload/init events on gametest platform
+            return;
+        }
 
         String geyserUdpPort = System.getProperty("geyserUdpPort", "");
         String pluginUdpPort = geyserUdpPort.isEmpty() ? System.getProperty("pluginUdpPort", "") : geyserUdpPort;
@@ -250,35 +363,33 @@ public class GeyserImpl implements GeyserApi {
             throw new UnsupportedOperationException("This hosting/service provider does not support applications running on the UDP port");
         }
         boolean portPropertyApplied = false;
+        boolean udpPortPropertyApplied = false;
         String pluginUdpAddress = System.getProperty("geyserUdpAddress", System.getProperty("pluginUdpAddress", ""));
 
-        if (platformType != PlatformType.STANDALONE) {
+        if (platformType() != PlatformType.STANDALONE) {
             int javaPort = bootstrap.getServerPort();
-            if (config.getRemote().address().equals("auto")) {
-                config.setAutoconfiguredRemote(true);
-                String serverAddress = bootstrap.getServerBindAddress();
-                if (!serverAddress.isEmpty() && !"0.0.0.0".equals(serverAddress)) {
-                    config.getRemote().setAddress(serverAddress);
-                } else {
-                    // Set the remote address to localhost since that is where we are always connecting
-                    try {
-                        config.getRemote().setAddress(InetAddress.getLocalHost().getHostAddress());
-                    } catch (UnknownHostException ex) {
-                        logger.debug("Unknown host when trying to find localhost.");
-                        if (config.isDebugMode()) {
-                            ex.printStackTrace();
-                        }
-                        config.getRemote().setAddress(InetAddress.getLoopbackAddress().getHostAddress());
+            String serverAddress = bootstrap.getServerBindAddress();
+            if (!serverAddress.isEmpty() && !"0.0.0.0".equals(serverAddress)) {
+                config.java().address(serverAddress);
+            } else {
+                // Set the remote address to localhost since that is where we are always connecting
+                try {
+                    config.java().address(InetAddress.getLocalHost().getHostAddress());
+                } catch (UnknownHostException ex) {
+                    logger.debug("Unknown host when trying to find localhost.");
+                    if (config.debugMode()) {
+                        ex.printStackTrace();
                     }
+                    config.java().address(InetAddress.getLoopbackAddress().getHostAddress());
                 }
-                if (javaPort != -1) {
-                    config.getRemote().setPort(javaPort);
-                }
+            }
+            if (javaPort != -1) {
+                config.java().port(javaPort);
             }
 
             boolean forceMatchServerPort = "server".equals(pluginUdpPort);
-            if ((config.getBedrock().isCloneRemotePort() || forceMatchServerPort) && javaPort != -1) {
-                config.getBedrock().setPort(javaPort);
+            if ((config.bedrock().cloneRemotePort() || forceMatchServerPort) && javaPort != -1) {
+                config.bedrock().port(javaPort);
                 if (forceMatchServerPort) {
                     if (geyserUdpPort.isEmpty()) {
                         logger.info("Port set from system generic property to match Java server.");
@@ -286,60 +397,115 @@ public class GeyserImpl implements GeyserApi {
                         logger.info("Port set from system property to match Java server.");
                     }
                     portPropertyApplied = true;
+                    udpPortPropertyApplied = true;
                 }
             }
 
             if ("server".equals(pluginUdpAddress)) {
                 String address = bootstrap.getServerBindAddress();
                 if (!address.isEmpty()) {
-                    config.getBedrock().setAddress(address);
+                    config.bedrock().address(address);
                 }
             } else if (!pluginUdpAddress.isEmpty()) {
-                config.getBedrock().setAddress(pluginUdpAddress);
+                config.bedrock().address(pluginUdpAddress);
             }
 
             if (!portPropertyApplied && !pluginUdpPort.isEmpty()) {
                 int port = Integer.parseInt(pluginUdpPort);
-                config.getBedrock().setPort(port);
+                config.bedrock().port(port);
                 if (geyserUdpPort.isEmpty()) {
                     logger.info("Port set from generic system property: " + port);
                 } else {
                     logger.info("Port set from system property: " + port);
                 }
+                udpPortPropertyApplied = true;
             }
 
-            boolean floodgatePresent = bootstrap.testFloodgatePluginPresent();
-            if (config.getRemote().authType() == AuthType.FLOODGATE && !floodgatePresent) {
-                logger.severe(GeyserLocale.getLocaleStringLog("geyser.bootstrap.floodgate.not_installed") + " "
-                        + GeyserLocale.getLocaleStringLog("geyser.bootstrap.floodgate.disabling"));
-                return;
-            } else if (config.isAutoconfiguredRemote() && floodgatePresent) {
-                // Floodgate installed means that the user wants Floodgate authentication
-                logger.debug("Auto-setting to Floodgate authentication.");
-                config.getRemote().setAuthType(AuthType.FLOODGATE);
-            }
-        }
 
-        String remoteAddress = config.getRemote().address();
-        // Filters whether it is not an IP address or localhost, because otherwise it is not possible to find out an SRV entry.
-        if (!remoteAddress.matches(IP_REGEX) && !remoteAddress.equalsIgnoreCase("localhost")) {
-            String[] record = WebUtils.findSrvRecord(this, remoteAddress);
-            if (record != null) {
-                int remotePort = Integer.parseInt(record[2]);
-                config.getRemote().setAddress(remoteAddress = record[3]);
-                config.getRemote().setPort(remotePort);
-                logger.debug("Found SRV record \"" + remoteAddress + ":" + remotePort + "\"");
+            if (platformType() != PlatformType.VIAPROXY) {
+                boolean floodgatePresent = bootstrap.testFloodgatePluginPresent();
+                if (config.java().authType() == AuthType.FLOODGATE && !floodgatePresent) {
+                    logger.severe(GeyserLocale.getLocaleStringLog("geyser.bootstrap.floodgate.not_installed") + " "
+                            + GeyserLocale.getLocaleStringLog("geyser.bootstrap.floodgate.disabling"));
+                    return;
+                } else if (floodgatePresent) {
+                    // Floodgate installed means that the user wants Floodgate authentication
+                    logger.debug("Auto-setting to Floodgate authentication.");
+                    config.java().authType(AuthType.FLOODGATE);
+                }
             }
         }
 
-        // Ensure that PacketLib does not create an event loop for handling packets; we'll do that ourselves
-        TcpSession.USE_EVENT_LOOP_FOR_PACKETS = false;
+        String transportProperty = System.getProperty("geyserTransport", "");
+        if (!transportProperty.isEmpty()) {
+            try {
+                GeyserConfig.BedrockConfig.Transport transport = GeyserConfig.BedrockConfig.Transport.valueOf(transportProperty.toUpperCase(Locale.ROOT));
+                config.bedrock().transport(transport);
+                logger.info("Transport set from system property: " + transport.name().toLowerCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                logger.error("Invalid transport from system property: " + transportProperty + "! Use \"nethernet\", \"both\" or \"raknet\". Defaulting to configured transport.");
+            }
+        }
 
-        pendingMicrosoftAuthentication = new PendingMicrosoftAuthentication(config.getPendingAuthenticationTimeout());
+        String signalingModeProperty = System.getProperty("geyserSignalingMode", "");
+        if (!signalingModeProperty.isEmpty()) {
+            try {
+                GeyserConfig.SignalingConfig.Mode mode = GeyserConfig.SignalingConfig.Mode.valueOf(signalingModeProperty.toUpperCase(Locale.ROOT));
+                config.bedrock().signaling().mode(mode);
+                logger.info("Signaling mode set from system property: " + mode.name().toLowerCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                logger.error("Invalid signaling mode from system property: " + signalingModeProperty + "! Use \"builtin\", \"hybrid\", \"nxs\" or \"none\". Defaulting to configured signaling mode.");
+            }
+        }
+
+        // The explicit WebRTC port property always wins. Without it, and with only NetherNet, WebRTC is the only
+        // UDP service, so it follows the UDP port property; with "both", RakNet keeps that port.
+        int webrtcPort = portProperty("geyserWebrtcPort", "NetherNet (WebRTC)", logger);
+        if (webrtcPort != 0) {
+            config.bedrock().webrtcPort(webrtcPort);
+            logger.info("NetherNet (WebRTC) port set from system property: " + webrtcPort);
+        } else if (udpPortPropertyApplied && config.bedrock().transport() == GeyserConfig.BedrockConfig.Transport.NETHERNET) {
+            config.bedrock().webrtcPort(0);
+            logger.info("NetherNet (WebRTC) port set from the Bedrock port system property: " + config.bedrock().port());
+        }
+
+        // Now that the Bedrock port may have been changed, also check the broadcast port (configurable on all platforms)
+        int broadcastPort = portProperty("geyserBroadcastPort", "Broadcast", logger);
+        if (broadcastPort != 0) {
+            config.advanced().bedrock().broadcastPort(broadcastPort);
+            logger.info("Broadcast port set from system property: " + broadcastPort);
+        }
+        config.bedrock().raknetPort(portProperty("geyserRaknetPort", "RakNet", logger));
+        config.bedrock().signaling().port(portProperty("geyserSignalingPort", "Built-in signaling", logger));
+
+        // These are 0 only if no system property or manual config value was set
+        if (config.advanced().bedrock().broadcastPort() == 0) {
+            config.advanced().bedrock().broadcastPort(config.bedrock().port());
+        }
+        if (config.bedrock().raknetPort() == 0) {
+            config.bedrock().raknetPort(config.bedrock().port());
+        }
+        if (config.bedrock().signaling().port() == 0) {
+            config.bedrock().signaling().port(config.bedrock().port());
+        }
+
+        if (!(config instanceof GeyserPluginConfig)) {
+            String remoteAddress = config.java().address();
+            // Filters whether it is not an IP address or localhost, because otherwise it is not possible to find out an SRV entry.
+            if (!IP_REGEX.matcher(remoteAddress).matches() && !remoteAddress.equalsIgnoreCase("localhost")) {
+                String[] record = WebUtils.findSrvRecord(this, remoteAddress);
+                if (record != null) {
+                    int remotePort = Integer.parseInt(record[2]);
+                    config.java().address(remoteAddress = record[3]);
+                    config.java().port(remotePort);
+                    logger.debug("Found SRV record \"" + remoteAddress + ":" + remotePort + "\"");
+                }
+            }
+        } else if (!config.advanced().java().useDirectConnection()) {
+            logger.warning("The use-direct-connection config option is deprecated. Please reach out to us on Discord if there's a reason it needs to be disabled.");
+        }
 
         this.newsHandler = new NewsHandler(BRANCH, this.buildNumber());
-
-        Packets.initGeyser();
 
         if (Epoll.isAvailable()) {
             this.erosionUnixListener = new UnixSocketClientListener();
@@ -347,179 +513,50 @@ public class GeyserImpl implements GeyserApi {
             logger.debug("Epoll is not available; Erosion's Unix socket handling will not work.");
         }
 
-        CooldownUtils.setDefaultShowCooldown(config.getShowCooldown());
-        DimensionUtils.changeBedrockNetherId(config.isAboveBedrockNetherBuilding()); // Apply End dimension ID workaround to Nether
-
-        Integer bedrockThreadCount = Integer.getInteger("Geyser.BedrockNetworkThreads");
-        if (bedrockThreadCount == null) {
-            // Copy the code from Netty's default thread count fallback
-            bedrockThreadCount = Math.max(1, SystemPropertyUtil.getInt("io.netty.eventLoopThreads", NettyRuntime.availableProcessors() * 2));
+        // RakNet takes the UDP side of the Bedrock port; NetherNet signaling its TCP side, and WebRTC
+        // the UDP side too if RakNet is not running
+        GeyserConfig.BedrockConfig.Transport transport = config.bedrock().transport();
+        this.geyserServer = null;
+        this.netherNetServer = null;
+        if (transport.raknet()) {
+            startRaknet(config, logger);
+        }
+        if (transport.nethernet()) {
+            this.netherNetServer = new NetherNetServer(this);
+            this.netherNetServer.start();
         }
 
-        if (shouldStartListener) {
-            this.geyserServer = new GeyserServer(this, bedrockThreadCount);
-            this.geyserServer.bind(new InetSocketAddress(config.getBedrock().address(), config.getBedrock().port()))
-                .whenComplete((avoid, throwable) -> {
-                    if (throwable == null) {
-                        logger.info(GeyserLocale.getLocaleStringLog("geyser.core.start", config.getBedrock().address(),
-                                String.valueOf(config.getBedrock().port())));
-                    } else {
-                        String address = config.getBedrock().address();
-                        int port = config.getBedrock().port();
-                        logger.severe(GeyserLocale.getLocaleStringLog("geyser.core.fail", address, String.valueOf(port)));
-                        if (!"0.0.0.0".equals(address)) {
-                            logger.info(Component.text("Suggestion: try setting `address` under `bedrock` in the Geyser config back to 0.0.0.0", NamedTextColor.GREEN));
-                            logger.info(Component.text("Then, restart this server.", NamedTextColor.GREEN));
-                        }
-                    }
-                }).join();
-        }
-
-        if (config.getRemote().authType() == AuthType.FLOODGATE) {
+        if (config.java().authType() == AuthType.FLOODGATE) {
             try {
-                Key key = new AesKeyProducer().produceFrom(config.getFloodgateKeyPath());
+                Key key = new AesKeyProducer().produceFrom(bootstrap.getFloodgateKeyPath());
                 cipher = new AesCipher(new Base64Topping());
                 cipher.init(key);
                 logger.debug("Loaded Floodgate key!");
-                // Note: this is positioned after the bind so the skin uploader doesn't try to run if Geyser fails
-                // to load successfully. Spigot complains about class loader if the plugin is disabled.
-                skinUploader = new FloodgateSkinUploader(this).start();
+                if (config.advanced().bedrock().validateBedrockLogin()) {
+                    // Note: this is positioned after the bind so the skin uploader doesn't try to run if Geyser fails
+                    // to load successfully. Spigot complains about class loader if the plugin is disabled.
+                    skinUploader = new FloodgateSkinUploader(this).start();
+                }
             } catch (Exception exception) {
                 logger.severe(GeyserLocale.getLocaleStringLog("geyser.auth.floodgate.bad_key"), exception);
             }
         }
 
-        if (config.getMetrics().isEnabled()) {
-            metrics = new Metrics(this, "GeyserMC", config.getMetrics().getUniqueId(), false, java.util.logging.Logger.getLogger(""));
-            metrics.addCustomChart(new Metrics.SingleLineChart("players", sessionManager::size));
-            // Prevent unwanted words best we can
-            metrics.addCustomChart(new Metrics.SimplePie("authMode", () -> config.getRemote().authType().toString().toLowerCase(Locale.ROOT)));
-            metrics.addCustomChart(new Metrics.SimplePie("platform", platformType::platformName));
-            metrics.addCustomChart(new Metrics.SimplePie("defaultLocale", GeyserLocale::getDefaultLocale));
-            metrics.addCustomChart(new Metrics.SimplePie("version", () -> GeyserImpl.VERSION));
-            metrics.addCustomChart(new Metrics.AdvancedPie("playerPlatform", () -> {
-                Map<String, Integer> valueMap = new HashMap<>();
-                for (GeyserSession session : sessionManager.getAllSessions()) {
-                    if (session == null) continue;
-                    if (session.getClientData() == null) continue;
-                    String os = session.getClientData().getDeviceOs().toString();
-                    if (!valueMap.containsKey(os)) {
-                        valueMap.put(os, 1);
-                    } else {
-                        valueMap.put(os, valueMap.get(os) + 1);
-                    }
-                }
-                return valueMap;
-            }));
-            metrics.addCustomChart(new Metrics.AdvancedPie("playerVersion", () -> {
-                Map<String, Integer> valueMap = new HashMap<>();
-                for (GeyserSession session : sessionManager.getAllSessions()) {
-                    if (session == null) continue;
-                    if (session.getClientData() == null) continue;
-                    String version = session.getClientData().getGameVersion();
-                    if (!valueMap.containsKey(version)) {
-                        valueMap.put(version, 1);
-                    } else {
-                        valueMap.put(version, valueMap.get(version) + 1);
-                    }
-                }
-                return valueMap;
-            }));
+        setupMetrics(config, logger);
 
-            String minecraftVersion = bootstrap.getMinecraftServerVersion();
-            if (minecraftVersion != null) {
-                Map<String, Map<String, Integer>> versionMap = new HashMap<>();
-                Map<String, Integer> platformMap = new HashMap<>();
-                platformMap.put(platformType.platformName(), 1);
-                versionMap.put(minecraftVersion, platformMap);
-
-                metrics.addCustomChart(new Metrics.DrilldownPie("minecraftServerVersion", () -> {
-                    // By the end, we should return, for example:
-                    // 1.16.5 => (Spigot, 1)
-                    return versionMap;
-                }));
-            }
-
-            // The following code can be attributed to the PaperMC project
-            // https://github.com/PaperMC/Paper/blob/master/Spigot-Server-Patches/0005-Paper-Metrics.patch#L614
-            metrics.addCustomChart(new Metrics.DrilldownPie("javaVersion", () -> {
-                Map<String, Map<String, Integer>> map = new HashMap<>();
-                String javaVersion = System.getProperty("java.version");
-                Map<String, Integer> entry = new HashMap<>();
-                entry.put(javaVersion, 1);
-
-                // http://openjdk.java.net/jeps/223
-                // Java decided to change their versioning scheme and in doing so modified the
-                // java.version system property to return $major[.$minor][.$security][-ea], as opposed to
-                // 1.$major.0_$identifier we can handle pre-9 by checking if the "major" is equal to "1",
-                // otherwise, 9+
-                String majorVersion = javaVersion.split("\\.")[0];
-                String release;
-
-                int indexOf = javaVersion.lastIndexOf('.');
-
-                if (majorVersion.equals("1")) {
-                    release = "Java " + javaVersion.substring(0, indexOf);
-                } else {
-                    // of course, it really wouldn't be all that simple if they didn't add a quirk, now
-                    // would it valid strings for the major may potentially include values such as -ea to
-                    // denote a pre release
-                    Matcher versionMatcher = Pattern.compile("\\d+").matcher(majorVersion);
-                    if (versionMatcher.find()) {
-                        majorVersion = versionMatcher.group(0);
-                    }
-                    release = "Java " + majorVersion;
-                }
-                map.put(release, entry);
-                return map;
-            }));
-        } else {
-            metrics = null;
-        }
-
-        if (config.getRemote().authType() == AuthType.ONLINE) {
-            // May be written/read to on multiple threads from each GeyserSession as well as writing the config
-            savedRefreshTokens = new ConcurrentHashMap<>();
-
-            File tokensFile = bootstrap.getSavedUserLoginsFolder().resolve(Constants.SAVED_REFRESH_TOKEN_FILE).toFile();
-            if (tokensFile.exists()) {
-                TypeReference<Map<String, String>> type = new TypeReference<>() { };
-
-                Map<String, String> refreshTokenFile = null;
-                try {
-                    refreshTokenFile = JSON_MAPPER.readValue(tokensFile, type);
-                } catch (IOException e) {
-                    logger.error("Cannot load saved user tokens!", e);
-                }
-                if (refreshTokenFile != null) {
-                    List<String> validUsers = config.getSavedUserLogins();
-                    boolean doWrite = false;
-                    for (Map.Entry<String, String> entry : refreshTokenFile.entrySet()) {
-                        String user = entry.getKey();
-                        if (!validUsers.contains(user)) {
-                            // Perform a write to this file to purge the now-unused name
-                            doWrite = true;
-                            continue;
-                        }
-                        savedRefreshTokens.put(user, entry.getValue());
-                    }
-                    if (doWrite) {
-                        scheduleRefreshTokensWrite();
-                    }
-                }
-            }
-        } else {
-            savedRefreshTokens = null;
-        }
+        loadSavedAuthChains(config, logger);
 
         newsHandler.handleNews(null, NewsItemAction.ON_SERVER_STARTED);
 
-        this.eventBus.fire(new GeyserPostInitializeEvent(this.extensionManager, this.eventBus));
-        if (config.isNotifyOnNewBedrockUpdate()) {
-            VersionCheckUtils.checkForGeyserUpdate(this::getLogger);
+        if (isReloading) {
+            this.eventBus.fire(new GeyserPostReloadEvent(this.extensionManager, this.eventBus));
+        } else {
+            this.eventBus.fire(new GeyserPostInitializeEvent(this.extensionManager, this.eventBus));
         }
 
-        VersionCheckUtils.checkForOutdatedJava(logger);
+        if (config.notifyOnNewBedrockUpdate()) {
+            VersionCheckUtils.checkForGeyserUpdate(this::getLogger);
+        }
     }
 
     @Override
@@ -578,9 +615,62 @@ public class GeyserImpl implements GeyserApi {
         return session.transfer(address, port);
     }
 
-    public void shutdown() {
+    /**
+     * Reads a port from a system property. Where each service ends up is already in the startup logs,
+     * so a valid port is applied quietly.
+     *
+     * @return the port, or 0 when the property is unset or does not hold a valid port
+     */
+    private static int portProperty(String property, String description, GeyserLogger logger) {
+        String value = System.getProperty(property, "");
+        if (value.isEmpty()) {
+            return 0;
+        }
+        try {
+            int port = Integer.parseInt(value);
+            if (port < 1 || port > 65535) {
+                throw new NumberFormatException("it must be between 1 and 65535 inclusive");
+            }
+            return port;
+        } catch (NumberFormatException e) {
+            logger.error("Invalid " + description + " port from system property: " + value
+                + " (" + e.getMessage() + ")! Defaulting to the configured port.");
+            return 0;
+        }
+    }
+
+    private void startRaknet(GeyserConfig config, GeyserLogger logger) {
+        int bedrockThreadCount = Integer.getInteger("Geyser.BedrockNetworkThreads", -1);
+        if (bedrockThreadCount == -1) {
+            // Copy the code from Netty's default thread count fallback
+            bedrockThreadCount = Math.max(1, SystemPropertyUtil.getInt("io.netty.eventLoopThreads", NettyRuntime.availableProcessors() * 2));
+        }
+
+        this.geyserServer = new RaknetServer(this, bedrockThreadCount);
+        this.geyserServer.bind(new InetSocketAddress(config.bedrock().address(), config.bedrock().raknetPort()))
+            .whenComplete((avoid, throwable) -> {
+                String address = config.bedrock().address();
+                String port = String.valueOf(config.bedrock().raknetPort()); // otherwise we get commas
+
+                if (throwable == null) {
+                    if ("0.0.0.0".equals(address)) {
+                        // basically just hide it in the log because some people get confused and try to change it
+                        logger.info(GeyserLocale.getLocaleStringLog("geyser.core.start.ip_suppressed", port));
+                    } else {
+                        logger.info(GeyserLocale.getLocaleStringLog("geyser.core.start", address, port));
+                    }
+                } else {
+                    logger.severe(GeyserLocale.getLocaleStringLog("geyser.core.fail", address, port));
+                    if (!"0.0.0.0".equals(address)) {
+                        logger.info(Component.text("Suggestion: try setting `address` under `bedrock` in the Geyser config back to 0.0.0.0", NamedTextColor.GREEN));
+                        logger.info(Component.text("Then, restart this server.", NamedTextColor.GREEN));
+                    }
+                }
+            }).join();
+    }
+
+    public void disable() {
         bootstrap.getGeyserLogger().info(GeyserLocale.getLocaleStringLog("geyser.core.shutdown"));
-        shuttingDown = true;
 
         if (sessionManager.size() >= 1) {
             bootstrap.getGeyserLogger().info(GeyserLocale.getLocaleStringLog("geyser.core.shutdown.kick.log", sessionManager.size()));
@@ -588,30 +678,52 @@ public class GeyserImpl implements GeyserApi {
             bootstrap.getGeyserLogger().info(GeyserLocale.getLocaleStringLog("geyser.core.shutdown.kick.done"));
         }
 
-        scheduledThread.shutdown();
-        geyserServer.shutdown();
-        if (skinUploader != null) {
-            skinUploader.close();
+        runIfNonNull(metrics, MetricsBase::shutdown);
+        runIfNonNull(scheduledThread, ScheduledExecutorService::shutdown);
+        runIfNonNull(scoreboardUpdater, ScoreboardUpdater::shutdown);
+        runIfNonNull(netherNetServer, NetherNetServer::shutdown);
+        runIfNonNull(geyserServer, RaknetServer::shutdown);
+        SkinProvider.shutdown();
+        runIfNonNull(skinUploader, FloodgateSkinUploader::close);
+        runIfNonNull(newsHandler, NewsHandler::shutdown);
+        runIfNonNull(erosionUnixListener, UnixSocketClientListener::close);
+
+        if (bootstrap.getGeyserPingPassthrough() instanceof GeyserLegacyPingPassthrough legacyPingPassthrough) {
+            legacyPingPassthrough.shutdown();
         }
-        newsHandler.shutdown();
-        this.commandManager().getCommands().clear();
 
-        if (this.erosionUnixListener != null) {
-            this.erosionUnixListener.close();
+        ResourcePackLoader.clear();
+        if (Registries.WAYPOINT_STYLE_MAPPINGS.loaded()) {
+            Registries.WAYPOINT_STYLE_MAPPINGS.get().clear();
+        }
+        CodeOfConductManager.trySave();
+
+        this.setEnabled(false);
+    }
+
+    public void shutdown() {
+        shuttingDown = true;
+        if (isEnabled) {
+            this.disable();
         }
 
-        Registries.RESOURCE_PACKS.get().clear();
-
+        // Disable extensions, fire the shutdown event
         this.eventBus.fire(new GeyserShutdownEvent(this.extensionManager, this.eventBus));
         this.extensionManager.disableExtensions();
 
         bootstrap.getGeyserLogger().info(GeyserLocale.getLocaleStringLog("geyser.core.shutdown.done"));
     }
 
-    public void reload() {
-        shutdown();
-        this.extensionManager.enableExtensions();
-        bootstrap.onEnable();
+    public void reloadGeyser() {
+        isReloading = true;
+        this.eventBus.fire(new GeyserPreReloadEvent(this.extensionManager, this.eventBus));
+        // The config may name different proxies, so the resolved whitelist has to be fetched again
+        TrustedProxies.invalidate();
+
+        bootstrap.onGeyserDisable();
+        bootstrap.onGeyserEnable();
+
+        isReloading = false;
     }
 
     /**
@@ -620,9 +732,10 @@ public class GeyserImpl implements GeyserApi {
      *
      * @return true if the version number is not 'DEV'.
      */
+    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     public boolean isProductionEnvironment() {
         // First is if Blossom runs, second is if Blossom doesn't run
-        // noinspection ConstantConditions - changes in production
+        //noinspection ConstantConditions - changes in production
         return !("git-local/dev-0000000".equals(GeyserImpl.GIT_VERSION) || "${gitVersion}".equals(GeyserImpl.GIT_VERSION));
     }
 
@@ -632,31 +745,39 @@ public class GeyserImpl implements GeyserApi {
         return this.extensionManager;
     }
 
+    /**
+     * @return the current CommandRegistry in use. The instance may change over the lifecycle of the Geyser runtime.
+     */
     @NonNull
-    public GeyserCommandManager commandManager() {
-        return this.bootstrap.getGeyserCommandManager();
+    public CommandRegistry commandRegistry() {
+        return this.bootstrap.getCommandRegistry();
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public <R extends T, T> @NonNull R provider(@NonNull Class<T> apiClass, @Nullable Object... args) {
-        return (R) Registries.PROVIDERS.get(apiClass).create(args);
+        ProviderSupplier provider = Registries.PROVIDERS.get(apiClass);
+        if (provider == null) {
+            throw new IllegalArgumentException("No provider found for " + apiClass);
+        }
+        return (R) provider.create(args);
     }
 
     @Override
     @NonNull
-    public EventBus<EventRegistrar> eventBus() {
+    public GeyserEventBus eventBus() {
         return this.eventBus;
     }
 
     @NonNull
     public RemoteServer defaultRemoteServer() {
-        return getConfig().getRemote();
+        return config().java();
     }
 
     @Override
     @NonNull
     public BedrockListener bedrockListener() {
-        return getConfig().getBedrock();
+        return config().bedrock();
     }
 
     @Override
@@ -674,7 +795,22 @@ public class GeyserImpl implements GeyserApi {
     @Override
     @NonNull
     public PlatformType platformType() {
-        return platformType;
+        return bootstrap.platformType();
+    }
+
+    @Override
+    public @NonNull MinecraftVersion supportedJavaVersion() {
+        return new MinecraftVersionImpl(GameProtocol.getJavaMinecraftVersion(), GameProtocol.getJavaProtocolVersion());
+    }
+
+    @Override
+    public @NonNull List<MinecraftVersion> supportedBedrockVersions() {
+        return Collections.unmodifiableList(GameProtocol.SUPPORTED_BEDROCK_VERSIONS);
+    }
+
+    @Override
+    public @NonNull CommandSource consoleCommandSource() {
+        return getLogger();
     }
 
     public int buildNumber() {
@@ -682,12 +818,13 @@ public class GeyserImpl implements GeyserApi {
             return 0;
         }
 
+        //noinspection DataFlowIssue
         return Integer.parseInt(BUILD_NUMBER);
     }
 
-    public static GeyserImpl load(PlatformType platformType, GeyserBootstrap bootstrap) {
+    public static GeyserImpl load(GeyserBootstrap bootstrap) {
         if (instance == null) {
-            return new GeyserImpl(platformType, bootstrap);
+            return new GeyserImpl(bootstrap);
         }
 
         return instance;
@@ -698,21 +835,20 @@ public class GeyserImpl implements GeyserApi {
             throw new RuntimeException("Geyser has not been loaded yet!");
         }
 
-        // We've been reloaded
-        if (instance.isShuttingDown()) {
-            instance.shuttingDown = false;
+        if (getInstance().isReloading()) {
             instance.startInstance();
         } else {
             instance.initialize();
         }
+        instance.setEnabled(true);
     }
 
     public GeyserLogger getLogger() {
         return bootstrap.getGeyserLogger();
     }
 
-    public GeyserConfiguration getConfig() {
-        return bootstrap.getGeyserConfig();
+    public GeyserConfig config() {
+        return bootstrap.config();
     }
 
     public WorldManager getWorldManager() {
@@ -720,39 +856,211 @@ public class GeyserImpl implements GeyserApi {
     }
 
     @Nullable
-    public String refreshTokenFor(@NonNull String bedrockName) {
-        return savedRefreshTokens.get(bedrockName);
+    public String authChainFor(@NonNull String bedrockName) {
+        return savedAuthChains.get(bedrockName);
     }
 
-    public void saveRefreshToken(@NonNull String bedrockName, @NonNull String refreshToken) {
-        if (!getConfig().getSavedUserLogins().contains(bedrockName)) {
+    public void saveAuthChain(@NonNull String bedrockName, @NonNull String authChain) {
+        if (!config().savedUserLogins().contains(bedrockName)) {
             // Do not save this login
             return;
         }
 
         // We can safely overwrite old instances because MsaAuthenticationService#getLoginResponseFromRefreshToken
         // refreshes the token for us
-        if (!Objects.equals(refreshToken, savedRefreshTokens.put(bedrockName, refreshToken))) {
-            scheduleRefreshTokensWrite();
+        if (!Objects.equals(authChain, savedAuthChains.put(bedrockName, authChain))) {
+            scheduleAuthChainsWrite();
         }
     }
 
-    private void scheduleRefreshTokensWrite() {
+    private <T> void runIfNonNull(T nullable, Consumer<@NonNull T> consumer) {
+        if (nullable != null) {
+            consumer.accept(nullable);
+        }
+    }
+
+    private void scheduleAuthChainsWrite() {
         scheduledThread.execute(() -> {
             // Ensure all writes are handled on the same thread
-            File savedTokens = getBootstrap().getSavedUserLoginsFolder().resolve(Constants.SAVED_REFRESH_TOKEN_FILE).toFile();
-            TypeReference<Map<String, String>> type = new TypeReference<>() { };
-            try (FileWriter writer = new FileWriter(savedTokens)) {
-                JSON_MAPPER.writerFor(type)
-                        .withDefaultPrettyPrinter()
-                        .writeValue(writer, savedRefreshTokens);
+            File savedAuthChains = getBootstrap().getSavedUserLoginsFolder().resolve(Constants.SAVED_AUTH_CHAINS_FILE).toFile();
+            Type type = new TypeToken<Map<String, String>>() { }.getType();
+            try (FileWriter writer = new FileWriter(savedAuthChains)) {
+                GSON.toJson(this.savedAuthChains, type, writer);
             } catch (IOException e) {
                 getLogger().error("Unable to write saved refresh tokens!", e);
             }
         });
     }
 
-    public static GeyserImpl getInstance() {
-        return instance;
+    /**
+     * Initializes bStats metrics collection with platform, player, and version charts.
+     */
+    private void setupMetrics(GeyserConfig config, GeyserLogger logger) {
+        MetricsPlatform metricsPlatform = bootstrap.createMetricsPlatform();
+        if (metricsPlatform != null && metricsPlatform.enabled()) {
+            metrics = new MetricsBase(
+                "server-implementation",
+                metricsPlatform.serverUuid(),
+                Constants.BSTATS_ID,
+                true, // Already checked above.
+                builder -> {
+                    // OS specific data
+                    String osName = System.getProperty("os.name");
+                    String osArch = System.getProperty("os.arch");
+                    String osVersion = System.getProperty("os.version");
+                    int coreCount = Runtime.getRuntime().availableProcessors();
+
+                    builder.appendField("osName", osName);
+                    builder.appendField("osArch", osArch);
+                    builder.appendField("osVersion", osVersion);
+                    builder.appendField("coreCount", coreCount);
+                },
+                builder -> {},
+                null,
+                () -> true,
+                logger::error,
+                logger::info,
+                metricsPlatform.logFailedRequests(),
+                metricsPlatform.logSentData(),
+                metricsPlatform.logResponseStatusText(),
+                metricsPlatform.disableRelocateCheck()
+            );
+            metrics.addCustomChart(new SingleLineChart("players", sessionManager::size));
+            // Prevent unwanted words best we can
+            metrics.addCustomChart(new SimplePie("authMode", () -> config.java().authType().toString().toLowerCase(Locale.ROOT)));
+
+            Map<String, Map<String, Integer>> platformTypeMap = new HashMap<>();
+            Map<String, Integer> serverPlatform = new HashMap<>();
+            serverPlatform.put(bootstrap.getServerPlatform(), 1);
+            platformTypeMap.put(platformType().platformName(), serverPlatform);
+
+            metrics.addCustomChart(new DrilldownPie("platform", () -> {
+                // By the end, we should return, for example:
+                // Geyser-Spigot => (Paper, 1)
+                return platformTypeMap;
+            }));
+
+            metrics.addCustomChart(new SimplePie("defaultLocale", GeyserLocale::getDefaultLocale));
+            metrics.addCustomChart(new SimplePie("version", () -> GeyserImpl.VERSION));
+            metrics.addCustomChart(new SimplePie("javaHaProxyProtocol", () -> String.valueOf(config.advanced().java().useHaproxyProtocol())));
+            metrics.addCustomChart(new SimplePie("bedrockHaProxyProtocol", () -> String.valueOf(config.advanced().bedrock().useHaproxyProtocol())));
+            metrics.addCustomChart(new AdvancedPie("playerPlatform", () -> {
+                Map<String, Integer> valueMap = new HashMap<>();
+                for (GeyserSession session : sessionManager.getAllSessions()) {
+                    if (session == null) continue;
+                    if (session.getClientData() == null) continue;
+                    String os = session.getClientData().getDeviceOs().toString();
+                    if (!valueMap.containsKey(os)) {
+                        valueMap.put(os, 1);
+                    } else {
+                        valueMap.put(os, valueMap.get(os) + 1);
+                    }
+                }
+                return valueMap;
+            }));
+            metrics.addCustomChart(new AdvancedPie("playerVersion", () -> {
+                Map<String, Integer> valueMap = new HashMap<>();
+                for (GeyserSession session : sessionManager.getAllSessions()) {
+                    if (session == null) continue;
+                    if (session.getClientData() == null) continue;
+                    String version = session.getClientData().getGameVersion();
+                    if (!valueMap.containsKey(version)) {
+                        valueMap.put(version, 1);
+                    } else {
+                        valueMap.put(version, valueMap.get(version) + 1);
+                    }
+                }
+                return valueMap;
+            }));
+
+            String minecraftVersion = bootstrap.getMinecraftServerVersion();
+            if (minecraftVersion != null) {
+                Map<String, Map<String, Integer>> versionMap = new HashMap<>();
+                Map<String, Integer> platformMap = new HashMap<>();
+                platformMap.put(bootstrap.getServerPlatform(), 1);
+                versionMap.put(minecraftVersion, platformMap);
+
+                metrics.addCustomChart(new DrilldownPie("minecraftServerVersion", () -> {
+                    // By the end, we should return, for example:
+                    // 1.16.5 => (Spigot, 1)
+                    return versionMap;
+                }));
+            }
+
+            // The following code can be attributed to the PaperMC project
+            // https://github.com/PaperMC/Paper/blob/master/Spigot-Server-Patches/0005-Paper-Metrics.patch#L614
+            metrics.addCustomChart(new DrilldownPie("javaVersion", () -> {
+                Map<String, Map<String, Integer>> map = new HashMap<>();
+                String javaVersion = System.getProperty("java.version");
+                Map<String, Integer> entry = new HashMap<>();
+                entry.put(javaVersion, 1);
+
+                // http://openjdk.java.net/jeps/223
+                // Java decided to change their versioning scheme and in doing so modified the
+                // java.version system property to return $major[.$minor][.$security][-ea], as opposed to
+                // 1.$major.0_$identifier we can handle pre-9 by checking if the "major" is equal to "1",
+                // otherwise, 9+
+                String majorVersion = javaVersion.split("\\.")[0];
+                String release;
+
+                int indexOf = javaVersion.lastIndexOf('.');
+
+                if (majorVersion.equals("1")) {
+                    release = "Java " + javaVersion.substring(0, indexOf);
+                } else {
+                    // of course, it really wouldn't be all that simple if they didn't add a quirk, now
+                    // would it valid strings for the major may potentially include values such as -ea to
+                    // denote a pre release
+                    Matcher versionMatcher = Pattern.compile("\\d+").matcher(majorVersion);
+                    if (versionMatcher.find()) {
+                        majorVersion = versionMatcher.group(0);
+                    }
+                    release = "Java " + majorVersion;
+                }
+                map.put(release, entry);
+                return map;
+            }));
+        } else {
+            metrics = null;
+        }
+    }
+
+    /**
+     * Loads saved authentication chains from disk for online-mode session resumption.
+     */
+    private void loadSavedAuthChains(GeyserConfig config, GeyserLogger logger) {
+        if (config.java().authType() == AuthType.ONLINE) {
+            // May be written/read to on multiple threads from each GeyserSession as well as writing the config
+            savedAuthChains = new ConcurrentHashMap<>();
+            Type type = new TypeToken<Map<String, String>>() { }.getType();
+
+            File authChainsFile = bootstrap.getSavedUserLoginsFolder().resolve(Constants.SAVED_AUTH_CHAINS_FILE).toFile();
+            if (authChainsFile.exists()) {
+                Map<String, String> authChainFile = null;
+                try (FileReader reader = new FileReader(authChainsFile)) {
+                    authChainFile = GSON.fromJson(reader, type);
+                } catch (IOException e) {
+                    logger.error("Cannot load saved user tokens!", e);
+                }
+                if (authChainFile != null) {
+                    List<String> validUsers = config.savedUserLogins();
+                    boolean doWrite = false;
+                    for (Map.Entry<String, String> entry : authChainFile.entrySet()) {
+                        String user = entry.getKey();
+                        if (!validUsers.contains(user)) {
+                            // Perform a write to this file to purge the now-unused name
+                            doWrite = true;
+                            continue;
+                        }
+                        savedAuthChains.put(user, entry.getValue());
+                    }
+                    if (doWrite) {
+                        scheduleAuthChainsWrite();
+                    }
+                }
+            }
+        } else {
+            savedAuthChains = null;
+        }
     }
 }

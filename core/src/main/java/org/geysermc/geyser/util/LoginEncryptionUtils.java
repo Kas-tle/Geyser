@@ -25,10 +25,11 @@
 
 package org.geysermc.geyser.util;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.steveice10.mc.auth.service.MsaAuthenticationService;
+import net.raphimc.minecraftauth.msa.model.MsaDeviceCode;
+import org.cloudburstmc.protocol.bedrock.data.auth.AuthPayload;
+import org.cloudburstmc.protocol.bedrock.data.auth.AuthType;
+import org.cloudburstmc.protocol.bedrock.data.auth.CertificateChainPayload;
+import org.cloudburstmc.protocol.bedrock.data.auth.TokenPayload;
 import org.cloudburstmc.protocol.bedrock.packet.LoginPacket;
 import org.cloudburstmc.protocol.bedrock.packet.ServerToClientHandshakePacket;
 import org.cloudburstmc.protocol.bedrock.util.ChainValidationResult;
@@ -40,6 +41,9 @@ import org.geysermc.cumulus.response.SimpleFormResponse;
 import org.geysermc.cumulus.response.result.FormResponseResult;
 import org.geysermc.cumulus.response.result.ValidFormResponseResult;
 import org.geysermc.geyser.GeyserImpl;
+import org.geysermc.geyser.network.bedrock.CodecProcessor;
+import org.cloudburstmc.netty.util.nethernet.TransportIdentityBinding;
+import org.geysermc.geyser.network.bedrock.nethernet.NetherNetPeer;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.session.auth.AuthData;
 import org.geysermc.geyser.session.auth.BedrockClientData;
@@ -47,54 +51,99 @@ import org.geysermc.geyser.text.ChatColor;
 import org.geysermc.geyser.text.GeyserLocale;
 
 import javax.crypto.SecretKey;
+import java.net.InetSocketAddress;
 import java.security.KeyPair;
 import java.security.PublicKey;
-import java.util.List;
 import java.util.function.BiConsumer;
 
 public class LoginEncryptionUtils {
-    private static final ObjectMapper JSON_MAPPER = new ObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-
     private static boolean HAS_SENT_ENCRYPTION_MESSAGE = false;
 
     public static void encryptPlayerConnection(GeyserSession session, LoginPacket loginPacket) {
-        encryptConnectionWithCert(session, loginPacket.getExtra(), loginPacket.getChain());
+        encryptConnectionWithCert(session, loginPacket.getAuthPayload(), loginPacket.getClientJwt());
     }
 
-    private static void encryptConnectionWithCert(GeyserSession session, String clientData, List<String> certChainData) {
+    private static void encryptConnectionWithCert(GeyserSession session, AuthPayload authPayload, String jwt) {
         try {
             GeyserImpl geyser = session.getGeyser();
 
-            ChainValidationResult result = EncryptionUtils.validateChain(certChainData);
-
-            geyser.getLogger().debug(String.format("Is player data signed? %s", result.signed()));
-
-            if (!result.signed() && !session.getGeyser().getConfig().isEnableProxyConnections()) {
+            // Regardless of auth type, we don't support guest type accounts used for splitscreen
+            if (authPayload.getAuthType() == AuthType.GUEST) {
                 session.disconnect(GeyserLocale.getLocaleStringLog("geyser.network.remote.invalid_xbox_account"));
                 return;
             }
 
-            IdentityData extraData = result.identityClaims().extraData;
-            session.setAuthenticationData(new AuthData(extraData.displayName, extraData.identity, extraData.xuid));
-            session.setCertChainData(certChainData);
+            ChainValidationResult result = EncryptionUtils.validatePayload(authPayload);
+
+            geyser.getLogger().debug("Is player data signed? %s", result.signed());
+            if (!result.signed() && session.getGeyser().config().advanced().bedrock().validateBedrockLogin()) {
+                session.disconnect(GeyserLocale.getLocaleStringLog("geyser.network.remote.invalid_xbox_account"));
+                return;
+            }
+
+            // Should always be present, but hey, why not make it safe :D
+            Long rawIssuedAt = (Long) result.rawIdentityClaims().get("iat");
+            long issuedAt = rawIssuedAt != null ? rawIssuedAt : -1;
+
+            if (authPayload instanceof TokenPayload tokenPayload) {
+                session.setToken(tokenPayload.getToken());
+            } else if (authPayload instanceof CertificateChainPayload certificateChainPayload) {
+                session.setCertChainData(certificateChainPayload.getChain());
+            } else {
+                GeyserImpl.getInstance().getLogger().warning("Unknown auth payload! Skin uploading will not work");
+            }
 
             PublicKey identityPublicKey = result.identityClaims().parsedIdentityPublicKey();
 
-            byte[] clientDataPayload = EncryptionUtils.verifyClientData(clientData, identityPublicKey);
+            byte[] clientDataPayload = EncryptionUtils.verifyClientData(jwt, identityPublicKey);
             if (clientDataPayload == null) {
                 throw new IllegalStateException("Client data isn't signed by the given chain data");
             }
 
-            JsonNode clientDataJson = JSON_MAPPER.readTree(clientDataPayload);
-            BedrockClientData data = JSON_MAPPER.convertValue(clientDataJson, BedrockClientData.class);
-            data.setOriginalString(clientData);
+            BedrockClientData data = JsonUtils.fromJson(clientDataPayload, BedrockClientData.class);
+            data.setOriginalString(jwt);
             session.setClientData(data);
+
+            // A proxy re-signs the chain with its own key, so the two only line up for a direct client.
+            // Every other transport binds the chain through the encryption handshake below instead.
+            if (!geyser.config().advanced().bedrock().useWaterdogpeForwarding()
+                    && session.getUpstream().getSession().getPeer() instanceof NetherNetPeer) {
+                if (refusedByBinding(geyser, session, TransportIdentityBinding.mismatch(
+                        session.getUpstream().getSession().getPeer().getChannel(), identityPublicKey))) {
+                    return;
+                }
+            }
+
+            IdentityData extraData = result.identityClaims().extraData;
+            String xuid = extraData.xuid;
+            if (geyser.config().advanced().bedrock().useWaterdogpeForwarding()) {
+                String waterdogIp = data.getWaterdogIp();
+                String waterdogXuid = data.getWaterdogXuid();
+                if (waterdogXuid != null && !waterdogXuid.isBlank() && waterdogIp != null && !waterdogIp.isBlank()) {
+                    xuid = waterdogXuid;
+                    session.getUpstream().setInetAddress(new InetSocketAddress(waterdogIp, 0));
+                } else {
+                    session.disconnect("Did not receive IP and xuid forwarded from the proxy!");
+                    return;
+                }
+                // The proxy authenticated this player, so there is no key of theirs to compare.
+                // Spending the binding is what stops the admission expiring under a live session,
+                // and it only happens once the forwarded fields above have been accepted.
+                if (refusedByBinding(geyser, session, TransportIdentityBinding.acceptForwardedIdentity(
+                        session.getUpstream().getSession().getPeer().getChannel()))) {
+                    return;
+                }
+            }
+            session.setAuthData(new AuthData(extraData.displayName, extraData.identity, xuid, issuedAt, extraData.minecraftId));
+
+            // Thanks 26.44, we love protocol bumps without protocol version bumps
+            CodecProcessor.updateCodec(session.getUpstream(), data.getGameVersion());
 
             try {
                 startEncryptionHandshake(session, identityPublicKey);
             } catch (Throwable e) {
                 // An error can be thrown on older Java 8 versions about an invalid key
-                if (geyser.getConfig().isDebugMode()) {
+                if (geyser.config().debugMode()) {
                     e.printStackTrace();
                 }
 
@@ -107,6 +156,12 @@ public class LoginEncryptionUtils {
     }
 
     private static void startEncryptionHandshake(GeyserSession session, PublicKey key) throws Exception {
+        if (session.getUpstream().getSession().getPeer() instanceof NetherNetPeer) {
+            // The data channel is already encrypted by DTLS, so the peer ignores an encryption key.
+            // Sending the handshake anyway would have the client encrypt what the server cannot read.
+            return;
+        }
+
         KeyPair serverKeyPair = EncryptionUtils.createKeyPair();
         byte[] token = EncryptionUtils.generateRandomToken();
 
@@ -116,6 +171,21 @@ public class LoginEncryptionUtils {
 
         SecretKey encryptionKey = EncryptionUtils.getSecretKey(serverKeyPair.getPrivate(), key, token);
         session.getUpstream().getSession().enableEncryption(encryptionKey);
+    }
+
+    /**
+     * Disconnects the session when the transport identity binding turned the login away.
+     *
+     * @param refusal why the binding refused it, or null when it did not
+     * @return whether the login was refused, and the session already disconnected
+     */
+    private static boolean refusedByBinding(GeyserImpl geyser, GeyserSession session, String refusal) {
+        if (refusal == null) {
+            return false;
+        }
+        geyser.getLogger().info("Refused a login from " + session.getSocketAddress() + ", " + refusal);
+        session.disconnect(GeyserLocale.getLocaleStringLog("geyser.network.remote.invalid_xbox_account"));
+        return true;
     }
 
     private static void sendEncryptionFailedMessage(GeyserImpl geyser) {
@@ -132,8 +202,8 @@ public class LoginEncryptionUtils {
             return;
         }
 
-        // Set DoDaylightCycle to false so the time doesn't accelerate while we're here
-        session.setDaylightCycle(false);
+        // So the time doesn't accelerate while we're here
+        session.resetTimeParameters();
 
         session.sendForm(
                 SimpleForm.builder()
@@ -203,7 +273,7 @@ public class LoginEncryptionUtils {
     /**
      * Shows the code that a user must input into their browser
      */
-    public static void buildAndShowMicrosoftCodeWindow(GeyserSession session, MsaAuthenticationService.MsCodeResponse msCode) {
+    public static void buildAndShowMicrosoftCodeWindow(GeyserSession session, MsaDeviceCode msCode) {
         String locale = session.locale();
 
         StringBuilder message = new StringBuilder("%xbox.signin.website\n")
@@ -212,8 +282,8 @@ public class LoginEncryptionUtils {
                 .append(ChatColor.RESET)
                 .append("\n%xbox.signin.enterCode\n")
                 .append(ChatColor.GREEN)
-                .append(msCode.user_code);
-        int timeout = session.getGeyser().getConfig().getPendingAuthenticationTimeout();
+                .append(msCode.getUserCode());
+        int timeout = session.getGeyser().config().pendingAuthenticationTimeout();
         if (timeout != 0) {
             message.append("\n\n")
                     .append(ChatColor.RESET)

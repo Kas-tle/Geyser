@@ -25,85 +25,41 @@
 
 package org.geysermc.geyser.entity.properties;
 
+import it.unimi.dsi.fastutil.objects.Object2ObjectArrayMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
+import org.cloudburstmc.nbt.NbtMap;
+import org.cloudburstmc.protocol.bedrock.data.entity.EntityProperty;
 import org.cloudburstmc.protocol.bedrock.data.entity.FloatEntityProperty;
 import org.cloudburstmc.protocol.bedrock.data.entity.IntEntityProperty;
-import org.geysermc.geyser.entity.properties.type.BooleanProperty;
-import org.geysermc.geyser.entity.properties.type.EnumProperty;
-import org.geysermc.geyser.entity.properties.type.FloatProperty;
-import org.geysermc.geyser.entity.properties.type.IntProperty;
 import org.geysermc.geyser.entity.properties.type.PropertyType;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class GeyserEntityPropertyManager {
 
     private final GeyserEntityProperties properties;
-
-    private final List<IntEntityProperty> intEntityProperties = new ArrayList<>();
-    private final List<FloatEntityProperty> floatEntityProperties = new ArrayList<>();
+    private final Object2ObjectMap<String, IntEntityProperty> intEntityProperties = new Object2ObjectArrayMap<>();
+    private final Object2ObjectMap<String, FloatEntityProperty> floatEntityProperties = new Object2ObjectArrayMap<>();
 
     public GeyserEntityPropertyManager(GeyserEntityProperties properties) {
         this.properties = properties;
-    }
-
-    public void add(String propertyName, int value) {
-        int index = properties.getPropertyIndex(propertyName);
-        if (index == -1) {
-            throw new IllegalArgumentException("Invalid property name: " + propertyName);
-        }
-
-        PropertyType property = properties.getProperties().get(index);
-        if (property instanceof IntProperty) {
-            intEntityProperties.add(new IntEntityProperty(index, value));
-        } else {
-            throw new IllegalArgumentException("Property " + propertyName + " is not of type IntProperty.");
+        for (PropertyType<?, ?> property : properties.getProperties()) {
+            String name = property.identifier().toString();
+            int index = properties.getPropertyIndex(name);
+            addProperty(name, property.defaultValue(index));
         }
     }
 
-    public void add(String propertyName, boolean value) {
-        int index = properties.getPropertyIndex(propertyName);
-        if (index == -1) {
-            throw new IllegalArgumentException("Invalid property name: " + propertyName);
-        }
-
-        PropertyType property = properties.getProperties().get(index);
-        if (property instanceof BooleanProperty) {
-            intEntityProperties.add(new IntEntityProperty(index, value ? 1 : 0));
-        } else {
-            throw new IllegalArgumentException("Property " + propertyName + " is not of type BooleanProperty.");
-        }
+    public <T> void addProperty(PropertyType<T, ? extends EntityProperty> propertyType, T value) {
+        int index = properties.getPropertyIndex(propertyType.identifier().toString());
+        this.addProperty(propertyType.identifier().toString(), propertyType.createValue(index, value));
     }
 
-    public void add(String propertyName, String value) {
-        int index = properties.getPropertyIndex(propertyName);
-        if (index == -1) {
-            throw new IllegalArgumentException("Invalid property name: " + propertyName);
-        }
-
-        PropertyType property = properties.getProperties().get(index);
-        if (property instanceof EnumProperty) {
-            int enumIndex = ((EnumProperty) property).getIndex(value);
-            if (enumIndex == -1) {
-                throw new IllegalArgumentException("Invalid enum value: " + value);
-            }
-            intEntityProperties.add(new IntEntityProperty(index, enumIndex));
-        } else {
-            throw new IllegalArgumentException("Property " + propertyName + " is not of type EnumProperty.");
-        }
-    }
-
-    public void add(String propertyName, float value) {
-        int index = properties.getPropertyIndex(propertyName);
-        if (index == -1) {
-            throw new IllegalArgumentException("Invalid property name: " + propertyName);
-        }
-
-        PropertyType property = properties.getProperties().get(index);
-        if (property instanceof FloatProperty) {
-            floatEntityProperties.add(new FloatEntityProperty(index, value));
-        } else {
-            throw new IllegalArgumentException("Provided value type doesn't match property type for: " + propertyName);
+    private void addProperty(String propertyName, EntityProperty entityProperty) {
+        if (entityProperty instanceof FloatEntityProperty floatEntityProperty) {
+            floatEntityProperties.put(propertyName, floatEntityProperty);
+        } else if (entityProperty instanceof IntEntityProperty intEntityProperty) {
+            intEntityProperties.put(propertyName, intEntityProperty);
         }
     }
 
@@ -119,21 +75,17 @@ public class GeyserEntityPropertyManager {
         return hasFloatProperties() || hasIntProperties();
     }
 
-    public List<IntEntityProperty> intProperties() {
-        return this.intEntityProperties;
-    }
-
     public void applyIntProperties(List<IntEntityProperty> properties) {
-        properties.addAll(intEntityProperties);
+        properties.addAll(intEntityProperties.values());
         intEntityProperties.clear();
     }
 
-    public List<FloatEntityProperty> floatProperties() {
-        return this.floatEntityProperties;
+    public void applyFloatProperties(List<FloatEntityProperty> properties) {
+        properties.addAll(floatEntityProperties.values());
+        floatEntityProperties.clear();
     }
 
-    public void applyFloatProperties(List<FloatEntityProperty> properties) {
-        properties.addAll(floatEntityProperties);
-        floatEntityProperties.clear();
+    public NbtMap toNbtMap(String entityType) {
+        return this.properties.toNbtMap(entityType);
     }
 }

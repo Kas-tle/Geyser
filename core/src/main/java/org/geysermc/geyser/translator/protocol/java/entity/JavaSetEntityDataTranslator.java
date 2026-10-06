@@ -25,13 +25,13 @@
 
 package org.geysermc.geyser.translator.protocol.java.entity;
 
-import com.github.steveice10.mc.protocol.data.game.entity.metadata.EntityMetadata;
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.entity.ClientboundSetEntityDataPacket;
-import org.geysermc.geyser.entity.EntityDefinition;
+import org.geysermc.geyser.entity.EntityTypeDefinition;
 import org.geysermc.geyser.entity.type.Entity;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
+import org.geysermc.mcprotocollib.protocol.data.game.entity.metadata.EntityMetadata;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.ClientboundSetEntityDataPacket;
 
 @Translator(packet = ClientboundSetEntityDataPacket.class)
 public class JavaSetEntityDataTranslator extends PacketTranslator<ClientboundSetEntityDataPacket> {
@@ -42,18 +42,18 @@ public class JavaSetEntityDataTranslator extends PacketTranslator<ClientboundSet
         Entity entity = session.getEntityCache().getEntityByJavaId(packet.getEntityId());
         if (entity == null) return;
 
-        EntityDefinition<?> definition = entity.getDefinition();
+        EntityTypeDefinition<?> definition = entity.getJavaDefinition();
         for (EntityMetadata<?, ?> metadata : packet.getMetadata()) {
             if (metadata.getId() >= definition.translators().size()) {
-                if (session.getGeyser().getConfig().isDebugMode()) {
+                if (session.getGeyser().config().debugMode()) {
                     // Minecraft client just ignores these
-                    session.getGeyser().getLogger().warning("Metadata ID " + metadata.getId() + " is out of bounds of known entity metadata size " + definition.translators().size() + " for entity type " + entity.getDefinition().entityType());
+                    session.getGeyser().getLogger().warning("Metadata ID " + metadata.getId() + " is out of bounds of known entity metadata size " + definition.translators().size() + " for entity type " + entity.getJavaDefinition().type());
                     session.getGeyser().getLogger().debug(metadata.toString());
                 }
                 continue;
             }
 
-            ((EntityDefinition) definition).translateMetadata(entity, metadata);
+            ((EntityTypeDefinition) definition).translateMetadata(entity, metadata);
         }
 
         entity.updateBedrockMetadata();

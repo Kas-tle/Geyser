@@ -25,31 +25,34 @@
 
 package org.geysermc.geyser.translator.protocol.java.entity.player;
 
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerLookAtPacket;
 import org.cloudburstmc.math.vector.Vector3f;
 import org.geysermc.geyser.session.GeyserSession;
 import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.MathUtils;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.entity.player.ClientboundPlayerLookAtPacket;
 
 @Translator(packet = ClientboundPlayerLookAtPacket.class)
 public class JavaPlayerLookAtTranslator extends PacketTranslator<ClientboundPlayerLookAtPacket> {
     @Override
     public void translate(GeyserSession session, ClientboundPlayerLookAtPacket packet) {
-        var targetPosition = targetPosition(session, packet);
-        var selfPosition = session.getPlayerEntity().getPosition();
+        Vector3f targetPosition = targetPosition(session, packet);
+        Vector3f originPosition = switch (packet.getOrigin()) {
+            case FEET -> session.getPlayerEntity().position();
+            // FIXME should be entity#eyeHeight, not bounding box height
+            case EYES -> session.getPlayerEntity().position().add(0, session.getPlayerEntity().getBoundingBoxHeight(), 0);
+        };
 
-        var xDelta = targetPosition.getX() - selfPosition.getX();
-        var yDelta = targetPosition.getY() - selfPosition.getY();
-        var zDelta = targetPosition.getZ() - selfPosition.getZ();
-        var sqrt = Math.sqrt(xDelta * xDelta + zDelta * zDelta);
+        float xDelta = targetPosition.getX() - originPosition.getX();
+        float yDelta = targetPosition.getY() - originPosition.getY();
+        float zDelta = targetPosition.getZ() - originPosition.getZ();
+        double sqrt = Math.sqrt(xDelta * xDelta + zDelta * zDelta);
 
-        var yaw = MathUtils.wrapDegrees(-Math.toDegrees(Math.atan2(yDelta, sqrt)));
-        var pitch = MathUtils.wrapDegrees(Math.toDegrees(Math.atan2(zDelta, xDelta)) - 90.0);
+        float pitch = MathUtils.wrapDegrees(-Math.toDegrees(Math.atan2(yDelta, sqrt)));
+        float yaw = MathUtils.wrapDegrees(Math.toDegrees(Math.atan2(zDelta, xDelta)) - 90.0);
 
-        var self = session.getPlayerEntity();
         // headYaw is also set to yaw in this packet
-        self.updateRotation(yaw, pitch, yaw, self.isOnGround());
+        session.getPlayerEntity().updateOwnRotation(yaw, pitch, yaw);
     }
 
     public Vector3f targetPosition(GeyserSession session, ClientboundPlayerLookAtPacket packet) {
@@ -58,8 +61,9 @@ public class JavaPlayerLookAtTranslator extends PacketTranslator<ClientboundPlay
             var target = session.getEntityCache().getEntityByJavaId(entityId);
             if (target != null) {
                 return switch (packet.getTargetEntityOrigin()) {
-                    case FEET -> target.getPosition();
-                    case EYES -> target.getPosition().add(0, target.getBoundingBoxHeight(), 0);
+                    case FEET -> target.position();
+                    // FIXME should be entity#eyeHeight, not bounding box height
+                    case EYES -> target.position().add(0, target.getBoundingBoxHeight(), 0);
                 };
             }
         }

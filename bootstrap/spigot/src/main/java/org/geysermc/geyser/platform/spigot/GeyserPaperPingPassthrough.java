@@ -27,15 +27,17 @@ package org.geysermc.geyser.platform.spigot;
 
 import com.destroystokyo.paper.event.server.PaperServerListPingEvent;
 import com.destroystokyo.paper.network.StatusClient;
-import com.destroystokyo.paper.profile.PlayerProfile;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
-import org.geysermc.geyser.network.GameProtocol;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.checkerframework.checker.nullness.qual.Nullable;
+import org.geysermc.geyser.network.bedrock.GameProtocol;
 import org.geysermc.geyser.ping.GeyserPingInfo;
 import org.geysermc.geyser.ping.IGeyserPingPassthrough;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 
 /**
@@ -43,7 +45,10 @@ import java.net.InetSocketAddress;
  * applied.
  */
 public final class GeyserPaperPingPassthrough implements IGeyserPingPassthrough {
-    private static final Constructor<PaperServerListPingEvent> OLD_CONSTRUCTOR = ReflectedNames.getOldPaperPingConstructor();
+    private static final Constructor<PaperServerListPingEvent> EVENT_CONSTRUCTOR = ReflectedNames.paperServerListPingEventConstructor();
+    // https://jd.papermc.io/paper/1.19.2/com/destroystokyo/paper/event/server/PaperServerListPingEvent.html
+    private static final boolean CHAT_PREVIEWS = EVENT_CONSTRUCTOR.getParameters()[2].getType() == boolean.class;
+    private static final Method MOTD_COMPONENT_GETTER = ReflectedNames.motdGetter();
 
     private final GeyserSpigotLogger logger;
 
@@ -51,22 +56,20 @@ public final class GeyserPaperPingPassthrough implements IGeyserPingPassthrough 
         this.logger = logger;
     }
 
+    @SuppressWarnings("deprecation")
     @Nullable
     @Override
     public GeyserPingInfo getPingInformation(InetSocketAddress inetSocketAddress) {
         try {
-            // We'd rather *not* use deprecations here, but unfortunately any Adventure class would be relocated at
-            // runtime because we still have to shade in our own Adventure class. For now.
             PaperServerListPingEvent event;
-            if (OLD_CONSTRUCTOR != null) {
-                // 1.19, removed in 1.19.4
-                event = OLD_CONSTRUCTOR.newInstance(new GeyserStatusClient(inetSocketAddress),
-                        Bukkit.getMotd(), Bukkit.getOnlinePlayers().size(),
-                        Bukkit.getMaxPlayers(), Bukkit.getVersion(), GameProtocol.getJavaProtocolVersion(), null);
+            if (CHAT_PREVIEWS) {
+                event = EVENT_CONSTRUCTOR.newInstance(new GeyserStatusClient(inetSocketAddress),
+                    MOTD_COMPONENT_GETTER.invoke(null), false, Bukkit.getOnlinePlayers().size(),
+                    Bukkit.getMaxPlayers(), Bukkit.getVersion(), GameProtocol.getJavaProtocolVersion(), null);
             } else {
-                event = new PaperServerListPingEvent(new GeyserStatusClient(inetSocketAddress),
-                        Bukkit.getMotd(), Bukkit.getOnlinePlayers().size(),
-                        Bukkit.getMaxPlayers(), Bukkit.getVersion(), GameProtocol.getJavaProtocolVersion(), null);
+                event = EVENT_CONSTRUCTOR.newInstance(new GeyserStatusClient(inetSocketAddress),
+                    MOTD_COMPONENT_GETTER.invoke(null), Bukkit.getOnlinePlayers().size(),
+                    Bukkit.getMaxPlayers(), Bukkit.getVersion(), GameProtocol.getJavaProtocolVersion(), null);
             }
             Bukkit.getPluginManager().callEvent(event);
             if (event.isCancelled()) {
@@ -81,16 +84,10 @@ public final class GeyserPaperPingPassthrough implements IGeyserPingPassthrough 
                 players = new GeyserPingInfo.Players(event.getMaxPlayers(), event.getNumPlayers());
             }
 
-            GeyserPingInfo geyserPingInfo = new GeyserPingInfo(event.getMotd(), players,
-                    new GeyserPingInfo.Version(Bukkit.getVersion(), GameProtocol.getJavaProtocolVersion()));
-
-            if (!event.shouldHidePlayers()) {
-                for (PlayerProfile profile : event.getPlayerSample()) {
-                    geyserPingInfo.getPlayerList().add(profile.getName());
-                }
-            }
-
-            return geyserPingInfo;
+            return new GeyserPingInfo(
+                GsonComponentSerializer.gson().serialize(LegacyComponentSerializer.legacySection().deserialize(event.getMotd())),
+                players
+            );
         } catch (Exception | LinkageError e) { // LinkageError in the event that method/constructor signatures change
             logger.debug("Error while getting Paper ping passthrough: " + e);
             return null;
@@ -99,7 +96,7 @@ public final class GeyserPaperPingPassthrough implements IGeyserPingPassthrough 
 
     private record GeyserStatusClient(InetSocketAddress address) implements StatusClient {
         @Override
-        public @NotNull InetSocketAddress getAddress() {
+        public @NonNull InetSocketAddress getAddress() {
             return address;
         }
 

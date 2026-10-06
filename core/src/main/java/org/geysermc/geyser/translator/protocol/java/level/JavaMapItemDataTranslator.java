@@ -25,9 +25,10 @@
 
 package org.geysermc.geyser.translator.protocol.java.level;
 
-import com.github.steveice10.mc.protocol.data.game.level.map.MapData;
-import com.github.steveice10.mc.protocol.data.game.level.map.MapIcon;
-import com.github.steveice10.mc.protocol.packet.ingame.clientbound.level.ClientboundMapItemDataPacket;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import org.geysermc.mcprotocollib.protocol.data.game.level.map.MapData;
+import org.geysermc.mcprotocollib.protocol.data.game.level.map.MapIcon;
+import org.geysermc.mcprotocollib.protocol.packet.ingame.clientbound.level.ClientboundMapItemDataPacket;
 import org.cloudburstmc.math.vector.Vector3i;
 import org.cloudburstmc.protocol.bedrock.data.MapDecoration;
 import org.cloudburstmc.protocol.bedrock.data.MapTrackedObject;
@@ -38,21 +39,22 @@ import org.geysermc.geyser.translator.protocol.PacketTranslator;
 import org.geysermc.geyser.translator.protocol.Translator;
 import org.geysermc.geyser.util.DimensionUtils;
 
+import java.util.ArrayList;
+
 @Translator(packet = ClientboundMapItemDataPacket.class)
 public class JavaMapItemDataTranslator extends PacketTranslator<ClientboundMapItemDataPacket> {
 
     @Override
     public void translate(GeyserSession session, ClientboundMapItemDataPacket packet) {
         org.cloudburstmc.protocol.bedrock.packet.ClientboundMapItemDataPacket mapItemDataPacket = new org.cloudburstmc.protocol.bedrock.packet.ClientboundMapItemDataPacket();
-        boolean shouldStore = false;
 
         mapItemDataPacket.setUniqueMapId(packet.getMapId());
-        mapItemDataPacket.setDimensionId(DimensionUtils.javaToBedrock(session.getDimension()));
+        mapItemDataPacket.setDimensionId(DimensionUtils.javaToBedrock(session));
         mapItemDataPacket.setLocked(packet.isLocked());
         mapItemDataPacket.setOrigin(Vector3i.ZERO); // Required since 1.19.20
         mapItemDataPacket.setScale(packet.getScale());
         // Required as of 1.19.50
-        mapItemDataPacket.getTrackedEntityIds().add(packet.getMapId());
+        mapItemDataPacket.setTrackedEntityIds(new LongArrayList(new long[]{packet.getMapId()}));
 
         MapData data = packet.getData();
         if (data != null) {
@@ -61,38 +63,37 @@ public class JavaMapItemDataTranslator extends PacketTranslator<ClientboundMapIt
             mapItemDataPacket.setWidth(data.getColumns());
             mapItemDataPacket.setHeight(data.getRows());
 
-            // We have a full map image, this usually only happens on spawn for the initial image
-            if (mapItemDataPacket.getWidth() == 128 && mapItemDataPacket.getHeight() == 128) {
-                shouldStore = true;
-            }
-
             // Every int entry is an ARGB color
             int[] colors = new int[data.getData().length];
 
             int idx = 0;
             for (byte colorId : data.getData()) {
-                colors[idx++] = MapColor.fromId(colorId & 0xFF).getARGB();
+                colors[idx++] = MapColor.fromId(colorId & 0xFF).getABGR();
             }
 
             mapItemDataPacket.setColors(colors);
         }
 
         // Bedrock needs an entity id to display an icon
-        int id = 0;
-        for (MapIcon icon : packet.getIcons()) {
-            BedrockMapIcon bedrockMapIcon = BedrockMapIcon.fromType(icon.getIconType());
+        if (packet.getIcons().length != 0) {
+            mapItemDataPacket.setTrackedObjects(new ArrayList<>(packet.getIcons().length));
+            mapItemDataPacket.setDecorations(new ArrayList<>(packet.getIcons().length));
 
-            mapItemDataPacket.getTrackedObjects().add(new MapTrackedObject(id));
-            mapItemDataPacket.getDecorations().add(new MapDecoration(bedrockMapIcon.getIconID(), icon.getIconRotation(), icon.getCenterX(), icon.getCenterZ(), "", bedrockMapIcon.toARGB()));
-            id++;
+            int id = 0;
+            for (MapIcon icon : packet.getIcons()) {
+                BedrockMapIcon bedrockMapIcon = BedrockMapIcon.fromType(icon.getIconType());
+
+                mapItemDataPacket.getTrackedObjects().add(new MapTrackedObject(id));
+                mapItemDataPacket.getDecorations().add(new MapDecoration(bedrockMapIcon.getIconID(), icon.getIconRotation(), icon.getCenterX(), icon.getCenterZ(), "", bedrockMapIcon.toARGB()));
+                id++;
+            }
         }
 
-        // Store the map to send when the client requests it, as bedrock expects the data after a MapInfoRequestPacket
-        if (shouldStore) {
-            session.getStoredMaps().put(mapItemDataPacket.getUniqueMapId(), mapItemDataPacket);
+        // Client will ignore if sent too early
+        if (session.isSentSpawnPacket()) {
+            session.sendUpstreamPacket(mapItemDataPacket);
+        } else {
+            session.getUpstream().queuePostStartGamePacket(mapItemDataPacket);
         }
-
-        // Send anyway just in case
-        session.sendUpstreamPacket(mapItemDataPacket);
     }
 }

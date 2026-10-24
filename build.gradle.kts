@@ -4,6 +4,7 @@ plugins {
     id("geyser.base-conventions")
 }
 
+# java
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
